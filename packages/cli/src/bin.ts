@@ -16,6 +16,8 @@
 import { existsSync, readFileSync, readdirSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { acquire, release, renew, inspect, isHolder, breakLock, claim, type LockPaths } from './lock.js';
+import { setup } from './commands/setup.js';
+import { verify } from './commands/verify.js';
 import { generateInstanceId, formatDuration, timeUntilExpiry } from '@trinoris/agent-core';
 
 const DEFAULTS = { lease: 15, grace: 5 };
@@ -46,6 +48,8 @@ function die(msg: string, code = 1): never {
 
 const USAGE = `trinoris-agent — multi-agent coordination
 
+  setup   [--force]                       scaffold coordination/ and bind agent tools
+  verify  [--trials N] [--concurrency N]  adoption gate: is mkdir atomic here?
   status  [--scope S]                     show lock state (all scopes, or one)
   acquire  --scope S [--task T]           take a scope lock
   renew    --scope S                      push out the lease
@@ -66,6 +70,43 @@ const instance = arg('instance') ?? generateInstanceId(agentClass);
 const identity = { agent_instance: instance, agent_class: agentClass };
 
 if (!cmd || cmd === '--help' || cmd === '-h') { console.log(USAGE); process.exit(0); }
+
+// setup runs before the tree exists; verify reports on its absence rather than dying.
+if (cmd === 'setup') {
+  const r = setup({
+    workDir,
+    force: process.argv.includes('--force'),
+    ...(arg('agent-classes') ? { agentClasses: arg('agent-classes')!.split(',') } : {}),
+    ...(arg('scopes') ? { scopes: arg('scopes')!.split(',') } : {}),
+  });
+  for (const c of r.created) console.log(`  created  ${c}`);
+  for (const s of r.skipped) console.log(`  kept     ${s} (exists — use --force to overwrite)`);
+  console.log(`\nNext: trinoris-agent verify --work-dir ${workDir}`);
+  process.exit(0);
+}
+
+if (cmd === 'verify') {
+  // async IIFE: top-level await would break the CJS build output
+  void (async () => {
+  const trials = Number(arg('trials', '50'));
+  const conc = Number(arg('concurrency', '8'));
+  console.log(`Racing ${conc} processes x ${trials} trials...`);
+  const r = await verify(workDir, trials, conc);
+  console.log(`  filesystem      ${r.filesystem}`);
+  console.log(`  structure       ${r.structureOk ? 'ok' : 'INCOMPLETE'}`);
+  console.log(`  config          ${r.configOk ? 'ok' : 'MISSING'}`);
+  console.log(`  mkdir atomicity ${r.atomicityOk ? `ATOMIC (${r.totalWinners}/${r.trials} trials, exactly one winner each)` : `NOT ATOMIC (${r.badTrials} bad trials)`}`);
+  for (const n of r.notes) console.log(`  note: ${n}`);
+  if (!r.atomicityOk) {
+    console.error('\nGATE FAILED: do not install the protocol in this tree.');
+    process.exit(1);
+  }
+  if (!r.structureOk || !r.configOk) { console.error('\nSetup incomplete — run: trinoris-agent setup'); process.exit(1); }
+  console.log('\nGate passed.');
+  process.exit(0);
+  })();
+} else {
+
 if (!existsSync(paths.root)) die(`No coordination/ in ${workDir}. Run setup first.`);
 
 const scope = () => arg('scope') ?? die('--scope is required');
@@ -147,4 +188,5 @@ switch (cmd) {
   }
   default:
     die(`Unknown command "${cmd}"\n\n${USAGE}`);
+}
 }

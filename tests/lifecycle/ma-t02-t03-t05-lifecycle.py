@@ -54,7 +54,13 @@ H = lambda mins: {"agent": "claude", "scope": "engine", "expires_at": iso(now() 
 print("MA-T02 — lease expiry vs grace")
 mklock(f"{ARENA}/live",       H(+10)); check("live lease", breakable(f"{ARENA}/live"), False)
 mklock(f"{ARENA}/just_exp",   H(-1));  check("expired 1m (inside grace)", breakable(f"{ARENA}/just_exp"), False)
-mklock(f"{ARENA}/edge",       H(-5));  check("expired exactly grace", breakable(f"{ARENA}/edge"), False)
+# Deliberately NOT asserting the exact grace boundary. Spec 02 records it as
+# indeterminate: expiry landing precisely on the edge is decided by microseconds and two
+# agents can legitimately disagree. That is why breaking is gated behind the
+# <scope>.breaking token rather than each agent's own comparison. Asserting either answer
+# here would encode a race as a requirement.
+mklock(f"{ARENA}/just_inside", H(-4));  check("expired 4m (inside 5m grace)", breakable(f"{ARENA}/just_inside"), False)
+mklock(f"{ARENA}/just_outside", H(-6)); check("expired 6m (outside 5m grace)", breakable(f"{ARENA}/just_outside"), True)
 mklock(f"{ARENA}/dead",       H(-20)); check("expired 20m (beyond grace)", breakable(f"{ARENA}/dead"), True)
 
 print("MA-T03 — malformed lock")

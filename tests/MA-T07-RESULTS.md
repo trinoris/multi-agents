@@ -1,5 +1,20 @@
 # MA-T07: Conflict Scenario Test Results
 
+> ## ⚠️ SUPERSEDED — this result certified behaviour the protocol forbids
+>
+> The run recorded below passed because agent B **retried in a loop** until it won the
+> lock. Spec 01's hard rules say the opposite: *"do not wait or spin. Pick different work
+> or write a handoff."* A spinning agent is an idle agent, so this test was certifying the
+> wrong design, and `@trinoris/agent-cli` now enforces no-spin by returning exit 3.
+>
+> Replaced by `tests/concurrency/ma-t07-contention-no-spin.sh`, which asserts that the
+> contended agent fails **immediately** (measured 181ms, not seconds), writes a handoff
+> instead of waiting, leaves the holder's lock untouched, and succeeds only on a fresh
+> later attempt. 7/7 pass.
+>
+> The original script is kept at `tests/superseded/test_conflict_scenario.sh.SPINS` as the
+> record of what was measured, not as a test to run.
+
 **Test ID:** MA-T07  
 **Date:** 2026-10-25T13:20:09Z  
 **Status:** ✅ PASS  

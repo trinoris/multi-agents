@@ -1,9 +1,11 @@
 {
   "name": "@trinoris/agent-cli",
   "version": "0.1.0",
-  "description": "Multi-agent coordination CLI — scope locks, handoffs, stale-lock recovery",
+  "description": "Multi-agent coordination CLI \u2014 scope locks, handoffs, stale-lock recovery",
   "type": "module",
-  "bin": { "trinoris-agent": "./dist/bin.js" },
+  "bin": {
+    "trinoris-agent": "./dist/bin.js"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,7 +16,9 @@
       "require": "./dist/index.cjs"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
@@ -22,7 +26,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@trinoris/agent-core": "workspace:*"
+    "@trinoris/agent-core": "workspace:*",
+    "@trinoris/agent-sdk": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
@@ -30,8 +35,17 @@
     "typescript": "^5.3.0",
     "vitest": "^1.0.0"
   },
-  "keywords": ["coordination", "multi-agent", "protocol", "cli"],
-  "repository": { "type": "git", "url": "https://github.com/trinoris/multi-agents.git", "directory": "packages/cli" },
+  "keywords": [
+    "coordination",
+    "multi-agent",
+    "protocol",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trinoris/multi-agents.git",
+    "directory": "packages/cli"
+  },
   "author": "TRINORIS",
   "license": "PROPRIETARY"
 }

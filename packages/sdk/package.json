@@ -1,0 +1,36 @@
+{
+  "name": "@trinoris/agent-sdk",
+  "version": "0.1.0",
+  "description": "Programmatic coordination API — scope locks, handoff claims, stale-lock recovery",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@trinoris/agent-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  },
+  "keywords": ["coordination", "multi-agent", "protocol", "sdk"],
+  "repository": { "type": "git", "url": "https://github.com/trinoris/multi-agents.git", "directory": "packages/sdk" },
+  "author": "TRINORIS",
+  "license": "PROPRIETARY"
+}

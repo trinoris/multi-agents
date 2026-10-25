@@ -15,7 +15,7 @@
 
 import { existsSync, readFileSync, readdirSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { acquire, release, renew, inspect, isHolder, breakLock, claim, type LockPaths } from './lock.js';
+import { acquire, release, renew, inspect, isHolder, breakLock, claim, type LockPaths } from '@trinoris/agent-sdk';
 import { setup } from './commands/setup.js';
 import { verify } from './commands/verify.js';
 import { generateInstanceId, formatDuration, timeUntilExpiry } from '@trinoris/agent-core';

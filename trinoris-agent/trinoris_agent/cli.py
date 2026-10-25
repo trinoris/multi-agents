@@ -15,6 +15,33 @@ from .commands.setup import setup_command
 from .commands.verify import verify_command
 
 
+SUPERSEDED_BY_TS = {
+    "acquire", "release", "renew", "check", "status", "break", "claim",
+}
+
+TS_PACKAGE = "@trinoris/agent-cli"
+
+
+def _explain_superseded(cmd: str) -> None:
+    """This CLI only has setup/verify. The TypeScript CLI is a superset and owns the
+    same `trinoris-agent` command name, so whichever is later on PATH wins. Without
+    this, an agent following the generated AGENTS.md gets argparse's bare
+    "invalid choice", which says nothing about why or what to install."""
+    import sys
+    print(
+        f"`{cmd}` is not in this (Python) build of trinoris-agent.\n"
+        f"\nThe lock engine now lives in {TS_PACKAGE}, which supports:\n"
+        "  status, acquire, renew, release, check, break, claim, setup, verify\n"
+        f"\nThis Python CLI is superseded and kept only for setup/verify. Both packages\n"
+        "install the same `trinoris-agent` command, so this one may be shadowing the\n"
+        "TypeScript build on your PATH. Install and prefer the Node one:\n"
+        f"\n  pnpm add -g {TS_PACKAGE}\n"
+        "\nOr call it directly: node <repo>/packages/cli/dist/bin.js " + cmd,
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="trinoris-agent",
@@ -45,9 +72,13 @@ For more information, see:
     parser.add_argument(
         "--version",
         action="version",
-        version="trinoris-agent 0.1.0"
+        version="trinoris-agent 0.1.0 (Python; superseded by @trinoris/agent-cli)"
     )
     
+    # Before argparse rejects it as an invalid choice, say something useful.
+    if len(sys.argv) > 1 and sys.argv[1] in SUPERSEDED_BY_TS:
+        _explain_superseded(sys.argv[1])
+
     subparsers = parser.add_subparsers(dest="command", help="Commands")
     
     # Setup command

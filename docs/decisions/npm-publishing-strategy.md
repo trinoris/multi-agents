@@ -398,3 +398,42 @@ Each package is independently useful, properly scoped, and follows npm best prac
 - Week 4: Beta (npm public)
 
 **Cost:** $0 (free public publishing)
+
+---
+
+## Decision (2026-10-25)
+
+**Registry: public npm, `@trinoris` org** — https://www.npmjs.com/settings/trinoris/packages
+
+This overrides the GitHub Packages recommendation above. Recorded here so the ADR matches
+what was actually chosen.
+
+**Access is currently `restricted`** in each package's `publishConfig`. That keeps the
+packages private to the org, which matches the `UNLICENSED` license and the "Proprietary
+and confidential" source headers — but npm requires a **paid org plan** for private
+scoped packages. Switching to `"access": "public"` is one line per package and makes the
+compiled output world-readable and permanently downloadable; `scripts/release.sh` demands
+a typed confirmation before doing it.
+
+`license` was changed from `PROPRIETARY` to `UNLICENSED`. `PROPRIETARY` is not a valid
+SPDX identifier and npm warns on it; `UNLICENSED` is the convention for proprietary code.
+
+### Publish with pnpm, never npm
+
+The packages depend on each other via `workspace:*`, and **npm ships that string
+verbatim**. Verified:
+
+| Command | `@trinoris/agent-sdk` dependency recorded in the tarball |
+| --- | --- |
+| `npm pack` | `"@trinoris/agent-core": "workspace:*"` — **broken for consumers** |
+| `pnpm pack` | `"@trinoris/agent-core": "0.1.0"` — correct |
+
+A consumer installing the npm-packed version fails with `Unsupported URL Type:
+workspace:`. Since npm versions can never be reused and unpublish is limited to a
+72-hour window, publishing one bad tarball is not recoverable by re-publishing the same
+version. `scripts/release.sh` refuses to run without pnpm for this reason.
+
+### Order
+
+`agent-core` → `agent-sdk` → `agent-cli`. Publishing the CLI first would put a version on
+the registry whose dependencies do not exist yet.

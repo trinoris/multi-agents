@@ -42,5 +42,9 @@
   },
   "homepage": "https://github.com/trinoris/multi-agents#readme",
   "author": "TRINORIS",
-  "license": "PROPRIETARY"
+  "license": "UNLICENSED",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "restricted"
+  }
 }

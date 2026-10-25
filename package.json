@@ -11,7 +11,9 @@
     "test": "turbo run test",
     "lint": "turbo run lint",
     "dev": "turbo run dev --parallel",
-    "clean": "turbo run clean && rm -rf node_modules"
+    "clean": "turbo run clean && rm -rf node_modules",
+    "release": "bash scripts/release.sh",
+    "release:dry": "bash scripts/release.sh --dry-run"
   },
   "devDependencies": {
     "turbo": "^1.11.0",

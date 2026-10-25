@@ -47,5 +47,9 @@
     "directory": "packages/cli"
   },
   "author": "TRINORIS",
-  "license": "PROPRIETARY"
+  "license": "UNLICENSED",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "restricted"
+  }
 }

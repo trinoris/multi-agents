@@ -1,21 +1,45 @@
-MIT License
+TRINORIS multi-agents — licensing
 
-Copyright (c) 2026 TRINORIS
+This repository is licensed in two parts. Read this file before reusing anything.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+────────────────────────────────────────────────────────────────────────────────
+1. packages/ — Apache License 2.0
+────────────────────────────────────────────────────────────────────────────────
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+The published implementation is open source under the Apache License, Version 2.0:
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+  packages/core/   @trinoris/agent-core
+  packages/sdk/    @trinoris/agent-sdk
+  packages/cli/    @trinoris/agent-cli
+
+The full licence text is in each package's own LICENSE file, which is what ships to
+npm. You may use, modify, distribute and sell derivative works of these packages under
+Apache-2.0, including inside proprietary software. Apache-2.0 grants patent rights and
+does NOT grant trademark rights: it gives you no permission to use the TRINORIS name or
+the @trinoris npm scope to endorse or promote your derivative work.
+
+────────────────────────────────────────────────────────────────────────────────
+2. Everything else — proprietary, all rights reserved
+────────────────────────────────────────────────────────────────────────────────
+
+Copyright (c) 2026 TRINORIS. All rights reserved.
+
+Everything outside packages/ is proprietary and confidential and is NOT covered by
+Apache-2.0. That includes, without limitation:
+
+  specs/        the coordination protocol specification
+  docs/         architecture decision records
+  tests/        the verification suite
+  coordination/ operational records
+
+No licence is granted to use, copy, modify or distribute these materials.
+
+Why the split: the implementation is a modest amount of code, while the specifications
+record verified findings that were expensive to establish — which filesystem primitives
+are atomic under real concurrency, which obvious alternatives silently fail under load,
+and the measured failure rates that led to the current design. The code is given away so
+the protocol can be adopted. The research behind it is not.
+
+────────────────────────────────────────────────────────────────────────────────
+
+If you need rights beyond the above, contact TRINORIS.

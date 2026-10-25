@@ -32,5 +32,5 @@ If it fails, the protocol does not apply to that filesystem and must not be inst
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+Apache-2.0 — see [LICENSE](./LICENSE).
 

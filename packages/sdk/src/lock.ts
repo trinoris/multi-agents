@@ -1,5 +1,6 @@
 /**
- * © 2026 TRINORIS. MIT licensed — see LICENSE.
+ * Copyright 2026 TRINORIS
+ * Licensed under the Apache License, Version 2.0 — see LICENSE.
  *
  * Filesystem lock engine. Implements specs/01 + specs/02 exactly, including the two
  * primitives that verification disproved:

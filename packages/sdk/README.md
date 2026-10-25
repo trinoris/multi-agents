@@ -34,5 +34,5 @@ so re-confirm with `isHolder()` immediately before each batch of writes.
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+Apache-2.0 — see [LICENSE](./LICENSE).
 

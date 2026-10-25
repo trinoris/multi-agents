@@ -438,7 +438,7 @@ version. `scripts/release.sh` refuses to run without pnpm for this reason.
 `agent-core` → `agent-sdk` → `agent-cli`. Publishing the CLI first would put a version on
 the registry whose dependencies do not exist yet.
 
-## License decision (2026-10-25): MIT
+## License decision (2026-10-25): Apache-2.0, scoped to packages/
 
 `UNLICENSED` was wrong for a public publish and was briefly self-contradictory here: the
 field said "no rights granted" while the LICENSE file said "you may install and use these
@@ -457,3 +457,33 @@ Scope note: the root `LICENSE` is MIT, which reads as covering the whole reposit
 specs, tests and ADRs included. The `packages/*` sources were updated to match. If only
 the three published packages are meant to be MIT and the specs are to stay proprietary,
 the root LICENSE needs scoping and the spec headers left as they were. **Not decided.**
+
+### Final: Apache-2.0 for `packages/`, proprietary for everything else
+
+Superseding the MIT step above. Three reasons Apache-2.0 over MIT, all specific to this
+case rather than general preference:
+
+- **Express patent grant.** Costs nothing and removes a review blocker for corporate
+  adopters whose legal teams check for it. MIT is silent on patents.
+- **Explicit trademark non-grant (§6).** Publishing gives nobody rights to the TRINORIS
+  name or the `@trinoris` scope. That matters when the packages are scope-branded; MIT
+  says nothing here.
+- **Derivatives must state changes**, so a fork cannot quietly present itself as ours.
+
+Ruled out: GPL/AGPL would be self-defeating for an SDK whose purpose is embedding in other
+codebases, including proprietary ones. BSL and PolyForm-style licences exist to stop
+competitors reselling a hosted service, which does not apply to developer tooling.
+
+**The scope split is the substantive decision, not the licence name.** The root `LICENSE`
+is now a scoping document: `packages/` is Apache-2.0, and `specs/`, `docs/`, `tests/` and
+`coordination/` remain proprietary. The implementation is a modest amount of code; the
+specifications hold findings that were expensive to establish — which primitives are
+atomic under real concurrency, which obvious alternatives fail silently under load, and
+the measured failure rates behind the design. The code is given away so the protocol can
+be adopted; the research is not.
+
+Verified that this reaches consumers correctly: `pnpm pack` on `@trinoris/agent-sdk`
+produces a tarball containing the **full Apache-2.0 text** as `package/LICENSE` and
+`"license": "Apache-2.0"`. The root scoping document is not published — npm takes each
+package's own LICENSE, so a consumer never sees the split notice and cannot mistake the
+proprietary half for part of the grant.

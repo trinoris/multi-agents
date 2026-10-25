@@ -14,7 +14,7 @@
 - [x] .gitignore (Node.js + Python + coordination state)
 - [x] .npmignore (source files, tests, docs)
 
-### 2. @trinoris/coordination-core Package
+### 2. @trinoris/agent-core Package
 - [x] Package.json with proper metadata
 - [x] TypeScript configuration
 - [x] tsup build configuration
@@ -67,7 +67,7 @@ trinoris-multi-agents/
 ├── node_modules/              187 packages
 │
 ├── packages/
-│   └── core/                  @trinoris/coordination-core ✅
+│   └── core/                  @trinoris/agent-core ✅
 │       ├── src/
 │       │   ├── types.ts       Interface definitions
 │       │   ├── utils.ts       Pure functions
@@ -122,7 +122,7 @@ trinoris-multi-agents/
 
 2. **Port setup command**
    - Port Python setup.py → TypeScript
-   - Use @trinoris/coordination-core types
+   - Use @trinoris/agent-core types
    - Add commander for CLI framework
 
 3. **Port verify command**
@@ -143,7 +143,7 @@ trinoris-multi-agents/
    - Test on ext4 and v9fs
 
 6. **SDK package**
-   - Create @trinoris/coordination-sdk
+   - Create @trinoris/agent-sdk
    - Implement CoordinationClient class
    - Write API documentation
 
@@ -160,7 +160,7 @@ trinoris-multi-agents/
    - Update documentation
 
 9. **Codex plugin**
-   - Create @trinoris/codex-coordination
+   - Create @trinoris/agent-codex
    - Test with Codex integration
 
 ## Progress Metrics

@@ -6,27 +6,27 @@
 
 **4 packages total:**
 
-1. **`@trinoris/coordination-core`** ✅ PUBLISH
+1. **`@trinoris/agent-core`** ✅ PUBLISH
    - Pure TypeScript types and utilities
    - Zero dependencies
    - Usable by anyone building coordination tools
    - **Public or Scoped Private**
 
-2. **`@trinoris/coordination-cli`** ✅ PUBLISH
+2. **`@trinoris/agent-cli`** ✅ PUBLISH
    - Command-line interface
-   - Depends on: @trinoris/coordination-core, commander, chalk, ora
+   - Depends on: @trinoris/agent-core, commander, chalk, ora
    - Binary: `trinoris-agent`
    - **Public or Scoped Private**
 
-3. **`@trinoris/coordination-sdk`** ✅ PUBLISH
+3. **`@trinoris/agent-sdk`** ✅ PUBLISH
    - Programmatic API for AI agents
-   - Depends on: @trinoris/coordination-core
+   - Depends on: @trinoris/agent-core
    - For building integrations
    - **Public or Scoped Private**
 
-4. **`@trinoris/codex-coordination`** ✅ PUBLISH
+4. **`@trinoris/agent-codex`** ✅ PUBLISH
    - Codex plugin wrapper
-   - Depends on: @trinoris/coordination-sdk
+   - Depends on: @trinoris/agent-sdk
    - Optional, for Codex users only
    - **Public or Scoped Private**
 
@@ -38,8 +38,8 @@
 
 **2 packages:**
 
-1. `@trinoris/coordination-core` - Types and utils
-2. `@trinoris/coordination-cli` - CLI binary
+1. `@trinoris/agent-core` - Types and utils
+2. `@trinoris/agent-cli` - CLI binary
 
 Skip SDK and plugins (build later if needed)
 
@@ -71,44 +71,44 @@ Single `@trinoris/coordination` with CLI + SDK + types all together.
 
 1. **Human using CLI:**
    ```bash
-   npm install -g @trinoris/coordination-cli
+   npm install -g @trinoris/agent-cli
    trinoris-agent setup
    ```
    Gets: CLI + core only (no SDK bloat)
 
 2. **AI agent (programmatic):**
    ```bash
-   npm install @trinoris/coordination-sdk
+   npm install @trinoris/agent-sdk
    ```
    ```typescript
-   import { CoordinationClient } from '@trinoris/coordination-sdk';
+   import { CoordinationClient } from '@trinoris/agent-sdk';
    ```
    Gets: SDK + core only (no CLI dependencies)
 
 3. **Building custom tools:**
    ```bash
-   npm install @trinoris/coordination-core
+   npm install @trinoris/agent-core
    ```
    ```typescript
-   import { parseHandoff, isLockExpired } from '@trinoris/coordination-core';
+   import { parseHandoff, isLockExpired } from '@trinoris/agent-core';
    ```
    Gets: Types and utils only (zero dependencies)
 
 4. **Codex integration:**
    ```bash
-   npm install @trinoris/codex-coordination
+   npm install @trinoris/agent-codex
    ```
    Gets: Plugin + SDK + core (full stack)
 
 ### Dependency Tree
 
 ```
-@trinoris/codex-coordination
-  └─ @trinoris/coordination-sdk
-      └─ @trinoris/coordination-core
+@trinoris/agent-codex
+  └─ @trinoris/agent-sdk
+      └─ @trinoris/agent-core
 
-@trinoris/coordination-cli
-  └─ @trinoris/coordination-core
+@trinoris/agent-cli
+  └─ @trinoris/agent-core
   └─ commander
   └─ chalk
   └─ ora
@@ -137,7 +137,7 @@ Clean separation, no duplication!
 
 ```json
 {
-  "name": "@trinoris/coordination-core",
+  "name": "@trinoris/agent-core",
   "publishConfig": {
     "access": "public"
   }
@@ -158,7 +158,7 @@ Clean separation, no duplication!
 
 ```json
 {
-  "name": "@trinoris/coordination-core",
+  "name": "@trinoris/agent-core",
   "private": false,
   "publishConfig": {
     "access": "restricted"
@@ -204,7 +204,7 @@ Don't publish yet. Use workspace references:
 // packages/cli/package.json
 {
   "dependencies": {
-    "@trinoris/coordination-core": "workspace:*"
+    "@trinoris/agent-core": "workspace:*"
   }
 }
 ```
@@ -226,7 +226,7 @@ pnpm publish -r --registry=https://npm.pkg.github.com
 Users install with:
 ```bash
 npm config set @trinoris:registry https://npm.pkg.github.com
-npm install -g @trinoris/coordination-cli
+npm install -g @trinoris/agent-cli
 ```
 
 ### Phase 3: Beta Release (Week 4)
@@ -239,14 +239,14 @@ pnpm publish -r --access public
 ```
 
 **Packages:**
-- `@trinoris/coordination-core@0.1.0`
-- `@trinoris/coordination-cli@0.1.0`
-- `@trinoris/coordination-sdk@0.1.0`
-- `@trinoris/codex-coordination@0.1.0`
+- `@trinoris/agent-core@0.1.0`
+- `@trinoris/agent-cli@0.1.0`
+- `@trinoris/agent-sdk@0.1.0`
+- `@trinoris/agent-codex@0.1.0`
 
 Users install with:
 ```bash
-npm install -g @trinoris/coordination-cli
+npm install -g @trinoris/agent-cli
 ```
 
 ### Phase 4: Stable Release (Month 2+)
@@ -262,10 +262,10 @@ Version 1.0.0 on npm (public).
 Each package has its own version:
 
 ```
-@trinoris/coordination-core@1.2.0
-@trinoris/coordination-cli@0.5.0
-@trinoris/coordination-sdk@0.3.0
-@trinoris/codex-coordination@0.2.0
+@trinoris/agent-core@1.2.0
+@trinoris/agent-cli@0.5.0
+@trinoris/agent-sdk@0.3.0
+@trinoris/agent-codex@0.2.0
 ```
 
 **Pros:**
@@ -282,10 +282,10 @@ Each package has its own version:
 All packages share the same version:
 
 ```
-@trinoris/coordination-core@0.5.0
-@trinoris/coordination-cli@0.5.0
-@trinoris/coordination-sdk@0.5.0
-@trinoris/codex-coordination@0.5.0
+@trinoris/agent-core@0.5.0
+@trinoris/agent-cli@0.5.0
+@trinoris/agent-sdk@0.5.0
+@trinoris/agent-codex@0.5.0
 ```
 
 **Pros:**
@@ -364,10 +364,10 @@ cd packages/codex-plugin && pnpm publish --access public
 
 **Publish: 4 packages**
 
-1. `@trinoris/coordination-core`
-2. `@trinoris/coordination-cli`
-3. `@trinoris/coordination-sdk`
-4. `@trinoris/codex-coordination`
+1. `@trinoris/agent-core`
+2. `@trinoris/agent-cli`
+3. `@trinoris/agent-sdk`
+4. `@trinoris/agent-codex`
 
 **Where to publish:**
 

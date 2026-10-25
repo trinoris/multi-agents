@@ -1,4 +1,4 @@
-# @trinoris/coordination-core
+# @trinoris/agent-core
 
 Core types and utilities for the multi-agent coordination protocol.
 
@@ -7,9 +7,9 @@ Core types and utilities for the multi-agent coordination protocol.
 ## Installation
 
 ```bash
-npm install @trinoris/coordination-core
+npm install @trinoris/agent-core
 # or
-pnpm add @trinoris/coordination-core
+pnpm add @trinoris/agent-core
 ```
 
 ## Usage
@@ -23,7 +23,7 @@ import {
   calculateExpiration,
   sortScopesByRegistry,
   DEFAULT_SCOPE_REGISTRY
-} from '@trinoris/coordination-core';
+} from '@trinoris/agent-core';
 
 // Check if a lock has expired
 const lock: Lock = {
@@ -105,9 +105,9 @@ const ordered = sortScopesByRegistry(scopes, DEFAULT_SCOPE_REGISTRY);
 
 ## Related Packages
 
-- [@trinoris/coordination-cli](../cli) - Command-line interface
-- [@trinoris/coordination-sdk](../sdk) - Programmatic API
-- [@trinoris/codex-coordination](../codex-plugin) - Codex plugin
+- [@trinoris/agent-cli](../cli) - Command-line interface
+- [@trinoris/agent-sdk](../sdk) - Programmatic API
+- [@trinoris/agent-codex](../codex-plugin) - Codex plugin
 
 ## Documentation
 

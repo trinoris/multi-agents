@@ -38,7 +38,7 @@ trinoris-multi-agents/
 ├── .changeset/              # Versioning automation
 │
 ├── packages/
-│   ├── core/                # @trinoris/coordination-core
+│   ├── core/                # @trinoris/agent-core
 │   │   ├── src/
 │   │   │   ├── types.ts
 │   │   │   ├── locks.ts
@@ -48,7 +48,7 @@ trinoris-multi-agents/
 │   │   ├── package.json
 │   │   └── tsconfig.json
 │   │
-│   ├── cli/                 # @trinoris/coordination-cli
+│   ├── cli/                 # @trinoris/agent-cli
 │   │   ├── src/
 │   │   │   ├── commands/
 │   │   │   │   ├── setup.ts
@@ -66,7 +66,7 @@ trinoris-multi-agents/
 │   │   ├── package.json
 │   │   └── tsconfig.json
 │   │
-│   ├── sdk/                 # @trinoris/coordination-sdk
+│   ├── sdk/                 # @trinoris/agent-sdk
 │   │   ├── src/
 │   │   │   ├── client.ts
 │   │   │   ├── agent.ts
@@ -74,7 +74,7 @@ trinoris-multi-agents/
 │   │   ├── package.json
 │   │   └── tsconfig.json
 │   │
-│   └── codex-plugin/        # @trinoris/codex-coordination
+│   └── codex-plugin/        # @trinoris/agent-codex
 │       ├── src/
 │       │   ├── plugin.ts
 │       │   └── index.ts
@@ -101,7 +101,7 @@ trinoris-multi-agents/
 
 ## Package Breakdown
 
-### 1. `@trinoris/coordination-core`
+### 1. `@trinoris/agent-core`
 
 **Purpose:** Core protocol logic (no CLI, no I/O)
 
@@ -136,11 +136,11 @@ export function scopeOrdering(scopes: string[]): string[];
 
 **Size:** ~300 lines
 
-### 2. `@trinoris/coordination-cli`
+### 2. `@trinoris/agent-cli`
 
 **Purpose:** Command-line interface (like current Python CLI)
 
-**Depends on:** `@trinoris/coordination-core`
+**Depends on:** `@trinoris/agent-core`
 
 **Commands:**
 ```bash
@@ -158,19 +158,19 @@ trinoris-agent handoffs
 - commander (CLI framework)
 - chalk (colors)
 - ora (spinners)
-- @trinoris/coordination-core
+- @trinoris/agent-core
 
 **Size:** ~500 lines
 
-### 3. `@trinoris/coordination-sdk`
+### 3. `@trinoris/agent-sdk`
 
 **Purpose:** Programmatic API for AI agents
 
-**Depends on:** `@trinoris/coordination-core`
+**Depends on:** `@trinoris/agent-core`
 
 **Usage:**
 ```typescript
-import { CoordinationClient } from '@trinoris/coordination-sdk';
+import { CoordinationClient } from '@trinoris/agent-sdk';
 
 const client = new CoordinationClient({
   workDir: process.cwd(),
@@ -197,16 +197,16 @@ await client.archiveHandoff('task-123.md', {
 
 **Size:** ~400 lines
 
-### 4. `@trinoris/codex-coordination`
+### 4. `@trinoris/agent-codex`
 
 **Purpose:** Codex plugin for native integration
 
-**Depends on:** `@trinoris/coordination-sdk`
+**Depends on:** `@trinoris/agent-sdk`
 
 **Usage:**
 ```javascript
 // Codex can import directly
-import { codexPlugin } from '@trinoris/codex-coordination';
+import { codexPlugin } from '@trinoris/agent-codex';
 
 codex.use(codexPlugin);
 
@@ -313,13 +313,13 @@ export default {
 ### Phase 0.6: Port Core Logic (2-3 hours)
 
 **Day 1 (continued):**
-1. ✅ Port pure functions to `@trinoris/coordination-core`
+1. ✅ Port pure functions to `@trinoris/agent-core`
 2. ✅ Add types for Lock, Handoff, Config
 3. ✅ Write unit tests for core
 4. ✅ Validate type safety
 
 **Deliverables:**
-- `@trinoris/coordination-core` complete
+- `@trinoris/agent-core` complete
 - 100% type coverage
 - Tests passing
 
@@ -333,7 +333,7 @@ export default {
 5. ✅ Test on ext4 and v9fs
 
 **Deliverables:**
-- `@trinoris/coordination-cli` working
+- `@trinoris/agent-cli` working
 - Parity with Python CLI
 - All MA-T01 tests passing
 
@@ -346,7 +346,7 @@ export default {
 4. ✅ Write SDK tests
 
 **Deliverables:**
-- `@trinoris/coordination-sdk` complete
+- `@trinoris/agent-sdk` complete
 - Ready for Phase 3 integrations
 
 **Total Time:** 8-12 hours over 2 days
@@ -388,7 +388,7 @@ export default {
 
 ```json
 {
-  "name": "@trinoris/coordination-core",
+  "name": "@trinoris/agent-core",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -421,7 +421,7 @@ export default {
 
 ```json
 {
-  "name": "@trinoris/coordination-cli",
+  "name": "@trinoris/agent-cli",
   "version": "0.1.0",
   "type": "module",
   "bin": {
@@ -435,7 +435,7 @@ export default {
     "test": "vitest run"
   },
   "dependencies": {
-    "@trinoris/coordination-core": "workspace:*",
+    "@trinoris/agent-core": "workspace:*",
     "commander": "^11.1.0",
     "chalk": "^5.3.0",
     "ora": "^7.0.0"
@@ -452,7 +452,7 @@ export default {
 
 ```json
 {
-  "name": "@trinoris/coordination-sdk",
+  "name": "@trinoris/agent-sdk",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -470,7 +470,7 @@ export default {
     "test": "vitest run"
   },
   "dependencies": {
-    "@trinoris/coordination-core": "workspace:*"
+    "@trinoris/agent-core": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8.0.0",
@@ -500,9 +500,9 @@ Plugins depend on SDK
 
 ### 3. **Independent Versioning**
 ```
-@trinoris/coordination-core@1.0.0
-@trinoris/coordination-cli@0.2.0
-@trinoris/coordination-sdk@0.1.0
+@trinoris/agent-core@1.0.0
+@trinoris/agent-cli@0.2.0
+@trinoris/agent-sdk@0.1.0
 ```
 
 ### 4. **Better Testing**

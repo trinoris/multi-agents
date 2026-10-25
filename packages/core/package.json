@@ -1,5 +1,5 @@
 {
-  "name": "@trinoris/coordination-core",
+  "name": "@trinoris/agent-core",
   "version": "0.1.0",
   "description": "Core types and logic for multi-agent coordination",
   "type": "module",

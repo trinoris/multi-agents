@@ -219,7 +219,7 @@ trinoris-agent verify
 **Phase 3: TypeScript SDK** (future)
 ```typescript
 // For programmatic usage
-import { Coordination } from '@trinoris/coordination-sdk';
+import { Coordination } from '@trinoris/agent-sdk';
 
 const coord = new Coordination(workDir);
 await coord.acquireLock('specs');

@@ -2,7 +2,7 @@
  * © 2026 TRINORIS. All rights reserved.
  * Proprietary and confidential.
  * 
- * @trinoris/coordination-core
+ * @trinoris/agent-core
  * 
  * Core types and utilities for the multi-agent coordination protocol.
  * Pure TypeScript with no Node.js dependencies.

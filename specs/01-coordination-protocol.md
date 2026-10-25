@@ -8,8 +8,9 @@ Proprietary and confidential.
 
 ## Status: PROPOSED
 
-Agent-agnostic contract for two coding agents sharing one working tree: **claude**
-(Claude Code) and **codex** (Codex CLI), each in its own terminal.
+Agent-agnostic contract for multiple coding agents sharing one working tree. Agents are
+identified by **model class** (e.g., `codex-gpt-6`, `claude-opus-5`) with unique
+**instance IDs** at runtime (e.g., `codex-gpt-6-a3f2`).
 
 This spec is the single source of truth. It is maintained in `trinoris-multi-agents` and
 copied into each consuming working tree as `coordination/PROTOCOL.md`.
@@ -19,17 +20,31 @@ this file wins.
 
 ## The problem being solved
 
-Both agents see the same files and nothing else. There is no shared memory, no message
-bus, and neither can observe the other's reasoning. Everything below is built from the
-only primitive both have: **the filesystem**.
+Multiple agents see the same files and nothing else. There is no shared memory, no message
+bus, and agents cannot observe each other's reasoning. Everything below is built from the
+only primitive all have: **the filesystem**.
 
 Three failure modes are worth the protocol's weight:
 
 1. **Concurrent edits to the same file** — one agent's write silently discards the other's.
-2. **Concurrent git operations** — a branch switch or commit while the other agent is
+2. **Concurrent git operations** — a branch switch or commit while another agent is
    mid-edit corrupts both agents' mental model of what is on disk.
 3. **A dead agent holding a lock forever** — agents are not long-lived processes, so
    nothing releases a lock automatically.
+
+## Agent identity
+
+Each agent has two identifiers:
+
+- **Agent class** — the model type: `codex-gpt-6`, `claude-opus-5`, `claude-sonnet-4`, etc.
+  This is static per agent and used for capability-based routing.
+- **Agent instance** — unique runtime ID: `codex-gpt-6-a3f2`, `claude-opus-5-x9k2`, etc.
+  Generated at startup (UUID suffix) or explicit. This identifies a specific running
+  instance.
+
+Multiple instances of the same class can work in parallel on different scopes. Handoffs are
+addressed to a **class** (any instance can claim) or a specific **instance** (only that one
+can claim).
 
 ## Verified environment facts
 
@@ -76,12 +91,20 @@ coordination/
 │   └── (locks/<scope>.breaking/ — transient: the right to break this lock)
 ├── claims/<note>.claim/     transient: the right to claim a handoff note
 ├── handoff/
-│   ├── for-claude/          notes addressed to claude
-│   └── for-codex/           notes addressed to codex
-├── active/                  claimed notes, work in progress
-├── archive/                 completed notes
-├── incidents/               records of broken locks and protocol violations
-└── heartbeat/<agent>.json   last-seen marker, for liveness only
+│   ├── for-codex-gpt-6/          notes addressed to any codex-gpt-6 instance
+│   ├── for-claude-opus-5/        notes addressed to any claude-opus-5 instance
+│   └── for-claude-sonnet-4/      notes addressed to any claude-sonnet-4 instance
+├── active/
+│   ├── codex-gpt-6-a3f2/         instance a3f2's claimed work
+│   ├── codex-gpt-6-b1d8/         instance b1d8's claimed work
+│   └── claude-opus-5-x9k2/       instance x9k2's claimed work
+├── archive/                      completed notes (all instances)
+│   └── INDEX.md                  one-line entries: filename, scopes, outcome
+├── incidents/                    records of broken locks and protocol violations
+└── heartbeat/
+    ├── codex-gpt-6-a3f2.json     per-instance heartbeat
+    ├── codex-gpt-6-b1d8.json
+    └── claude-opus-5-x9k2.json
 ```
 
 ## Scopes
@@ -123,39 +146,61 @@ Read-only git needs **no** lock: `status`, `log`, `diff`, `show`, `ls-files`, `r
 `blame`.
 
 A branch switch changes every file under both agents' feet, so `git` is the one scope
-where holding it while the peer is mid-edit is actively destructive. **Never switch
-branches while any other scope lock is held by the peer** — check `locks/` first, and if
-any peer lock is live, write a handoff asking for the switch instead of forcing it.
+where holding it while the peer is mid-edit is actively destructive. **Before acquiring
+`git` for any branch-mutating operation** (`checkout`, `switch`, `merge`, `rebase`,
+`reset`), **`ls coordination/locks/` and abort if any peer lock with a live lease exists.**
+Read each peer lock's `holder.json` to check `expires_at`. If any peer lock is live, write
+a handoff asking for the switch instead of forcing it. Commits and index operations are
+safe to perform while peer locks are held, as they don't change the working tree.
 
 ## Locks
 
 ### Acquire
 
-1. Create the directory `coordination/locks/<scope>.lock`.
-   - Success → you hold it. Continue to step 2.
+1. **Check for recent incidents in this scope**: `ls incidents/ | grep <scope>`. If any
+   incident file for this scope exists with a timestamp less than 1 hour old, read it
+   before proceeding. You may be re-acquiring after an eviction, or the peer may have
+   discovered corruption.
+2. Create the directory `coordination/locks/<scope>.lock`.
+   - Success → you hold it. Continue to step 3.
    - Failure → held by someone. Go to **Contention**.
-2. Immediately write `holder.json` inside it:
+3. Immediately write `holder.json` inside it:
 
 ```json
 {
-  "agent": "claude",
+  "agent_instance": "codex-gpt-6-a3f2",
+  "agent_class": "codex-gpt-6",
   "scope": "engine",
   "task": "one line: what you are doing and why",
   "acquired_at": "2026-10-25T14:03:11Z",
   "expires_at": "2026-10-25T14:18:11Z",
-  "handoff": "coordination/active/2026-10-25T1402-rename-engine-fields.md"
+  "handoff": "coordination/active/codex-gpt-6-a3f2/2026-10-25T1402-rename-engine-fields.md"
 }
 ```
 
-Default lease: **15 minutes**. `handoff` is optional but strongly preferred — it tells the
-peer where to read the full context instead of guessing from one line.
+Default lease: **15 minutes**. `handoff` is optional but strongly preferred — it tells
+peers where to read the full context instead of guessing from one line.
 
 ### Hold and renew
 
 - While working, rewrite `holder.json` with a pushed-out `expires_at` at least every
   **5 minutes of active work**. A lease is a promise you are still alive, not a reservation.
+- For long operations (>5 minutes) that cannot be checkpointed, write
+  `coordination/heartbeat/<agent-instance>.json` every 2 minutes as a lightweight liveness signal:
+  ```json
+  {
+    "agent_instance": "codex-gpt-6-a3f2",
+    "agent_class": "codex-gpt-6",
+    "at": "2026-10-25T14:03:11Z",
+    "scope": "engine"
+  }
+  ```
+  This does not extend the lease, but it helps distinguish "slow operation in progress"
+  from "dead agent" when peers evaluate breakability. A peer seeing a fresh heartbeat
+  (< 3 minutes old) for the lock holder should wait an additional grace period before
+  breaking.
 - **Re-read `holder.json` and confirm you are still the holder immediately before each
-  batch of writes.** If the lease expired and the peer broke the lock, you no longer hold
+  batch of writes.** If the lease expired and a peer broke the lock, you no longer hold
   it and must stop and re-acquire — your in-memory belief is not authority.
 
 ### Release
@@ -168,12 +213,15 @@ a long analysis or while waiting for the user.
 Read the peer's `holder.json`:
 
 - **Lease still valid** → do not wait or spin. Pick different work in another scope, or
-  write a handoff note into `handoff/for-<peer>/` and stop. Blocking on a lock wastes a
-  whole agent.
-- **`expires_at` in the past by more than the 5-minute grace** → you may break it, via the
-  break-token sequence below. Never decide this and act on it in one step: at the exact
-  grace boundary two agents disagree by microseconds, and the token is what stops both
-  acting on their own answer.
+  write a handoff note into `handoff/for-<peer-class>/` and stop. Blocking on a lock wastes
+  an agent.
+- **`expires_at` in the past by more than the 5-minute grace** → check
+  `coordination/heartbeat/<peer-instance>.json`. If it exists and its `at` timestamp is less than
+  3 minutes old, the peer is alive but slow — wait one additional grace period (5 minutes)
+  before reconsidering. If no fresh heartbeat, you may break the lock via the break-token
+  sequence below. Never decide this and act on it in one step: at the exact grace boundary
+  two agents disagree by microseconds, and the token is what stops both acting on their own
+  answer.
 - **`holder.json` missing or unparseable** → the lock is malformed; the acquirer died
   between creating the directory and writing its metadata. You may break it once the
   **lock directory's own mtime** is older than the grace period.
@@ -188,13 +236,13 @@ serialised, or two agents break the same lock and the second one evicts the firs
    the lock.
 2. Re-check that the lock is still stale. The holder may have renewed while you were
    acquiring the token.
-3. Write `coordination/incidents/<ISO8601>-broken-<scope>.md` recording: who you are, the
-   scope, the holder you evicted, that holder's `acquired_at`/`expires_at`, why you judged
-   it dead, and what you intend to do next.
+3. Write `coordination/incidents/<ISO8601>-broken-<scope>.md` recording: your instance ID,
+   agent class, the scope, the holder you evicted (both instance and class), that holder's
+   `acquired_at`/`expires_at`, why you judged it dead, and what you intend to do next.
 4. `mv` the stale lock directory to `incidents/<ISO8601>-<scope>.stale` — move it aside
    rather than deleting it, so the evicted holder's metadata survives as evidence.
-5. `mkdir` the lock fresh and write your own `holder.json`.
-6. Re-read `holder.json` and confirm it is yours. If it is not, you lost: stand down.
+5. `mkdir` the lock fresh and write your own `holder.json` with your instance ID.
+6. Re-read `holder.json` and confirm `agent_instance` is yours. If it is not, you lost: stand down.
 7. `rmdir coordination/locks/<scope>.breaking`.
 8. **Assume the evicted agent left the tree mid-edit.** Run `git status` and the relevant
    tests before building on what you find. A broken lock means the work in that scope is of
@@ -204,20 +252,31 @@ serialised, or two agents break the same lock and the second one evicts the firs
 
 ### Writing one
 
-Write `coordination/handoff/for-<peer>/<ISO8601>-<slug>.md` using the format in
-[`03-handoff-format.md`](03-handoff-format.md). A consuming tree may keep a copy of that
-format as `coordination/TEMPLATE-handoff.md`; the spec is authoritative.
+Write `coordination/handoff/for-<agent-class>/<ISO8601>-<slug>.md` using the format in
+[`03-handoff-format.md`](03-handoff-format.md). Address it to an **agent class** (e.g.,
+`for-codex-gpt-6/`) so any instance of that class can claim it, or specify a particular
+instance in the frontmatter if the work must be done by that specific agent.
 
-Release your locks **before** writing the note, so the peer can act on it immediately.
+A consuming tree may keep a copy of the format as `coordination/TEMPLATE-handoff.md`; the
+spec is authoritative.
+
+Release your locks **before** writing the note, so peers can act on it immediately.
 
 ### Claiming one
 
 Claiming is **two steps**, because `mv` is not an atomic claim:
 
-1. `mkdir coordination/claims/<note-filename>.claim` — this is the atomic step. Failure
-   means another agent is claiming it; stand down.
-2. `mv coordination/handoff/for-<you>/<note> coordination/active/<note>`, then
-   `rmdir` the claim directory.
+1. **Check if you can claim this handoff:**
+   - Read the frontmatter
+   - Check `to_class`: must match your agent class (e.g., `codex-gpt-6`)
+   - Check `to_instance`: if `any`, you can claim; if a specific instance ID, only that instance can claim
+   - Check `scopes`: verify those scopes are available (not currently held by other agents)
+   
+2. `mkdir coordination/claims/<note-filename>.claim` — this is the atomic step. Failure
+   means another agent instance is claiming it; stand down.
+
+3. `mv coordination/handoff/for-<your-class>/<note> coordination/active/<your-instance>/<note>`,
+   then `rmdir` the claim directory.
 
 **Do not use `mv -n` as the claim.** Verified: `mv -n` is implemented as stat-then-rename
 in userspace, so when the target already exists it returns **success** without moving.
@@ -225,14 +284,17 @@ Two agents racing both get exit 0, both see the source gone, and both conclude t
 claimed the note — measured at 2 claimers out of 8 racers, 21 failures in 100 trials.
 `mkdir` is the only claim primitive verified atomic here.
 
-No scope lock is needed to claim. An agent must never edit a note sitting in the peer's
-`for-<peer>/` directory.
+No scope lock is needed to claim. An agent instance must never edit a note sitting in
+another agent's `for-<agent-class>/` directory or in another instance's `active/<instance>/`
+directory.
 
 ### Finishing one
 
-`mv` the note from `active/` to `archive/`, appending an `## Outcome` section: what landed,
-what did not, and what is now true. The archive is the project's memory of who did what and
-why — keep it honest rather than tidy.
+`mv` the note from `active/<your-instance>/` to `archive/`, appending an `## Outcome`
+section: what landed, what did not, and what is now true. The archive is the project's
+memory of who did what and why — keep it honest rather than tidy.
+
+Update `archive/INDEX.md` with a one-line entry (see spec 03).
 
 ## The verified/assumed split
 
@@ -250,38 +312,57 @@ it is assumed.**
 
 ## Heartbeat
 
-Optional, liveness only. An agent may write `coordination/heartbeat/<agent>.json`:
+Lightweight liveness signal for long operations. An agent instance holding a lock for an
+operation that cannot checkpoint every 5 minutes should write
+`coordination/heartbeat/<agent-instance>.json`:
 
 ```json
-{ "agent": "claude", "at": "2026-10-25T14:03:11Z", "status": "working on engine rename" }
+{
+  "agent_instance": "codex-gpt-6-a3f2",
+  "agent_class": "codex-gpt-6",
+  "at": "2026-10-25T14:03:11Z",
+  "scope": "engine"
+}
 ```
 
-It answers "is my peer alive at all". It is **not** a lock and confers no rights. A fresh
-heartbeat does not protect an expired lease, and a missing heartbeat is not permission to
-break a live one.
+Update every **2 minutes** during long operations. This answers "is this agent instance
+alive?" without the cost of rewriting `holder.json` and re-parsing the entire lease
+structure.
+
+**A heartbeat does not extend a lease.** It is evidence of liveness that informs peers'
+breakability decisions: a fresh heartbeat (< 3 minutes old) for an expired lock suggests
+waiting one additional grace period. An expired lease with no fresh heartbeat is breakable
+immediately after grace elapses.
+
+A missing or stale heartbeat is **not** permission to break a live lease. The lease itself
+is authoritative; the heartbeat is advisory.
 
 ## Hard rules
 
 1. No lock, no write. Reading is always free.
 2. Never edit a path outside a scope you hold.
 3. Acquire multiple scopes in registry order, always.
-4. Re-verify you hold the lock immediately before writing.
+4. Re-verify you hold the lock immediately before writing (check `agent_instance` in `holder.json`).
 5. Never break a lock without holding `<scope>.breaking` **and** writing an incident
-   record. Breaking without the token is the one violation that silently destroys the
+   record. Breaking without the token is the one violation that silently destroys a
    peer's freshly acquired lock.
-6. Never switch branches, rebase or reset while the peer holds any lock.
+6. Never switch branches, rebase or reset while any peer holds any lock.
 7. Never force-push, and never rewrite a commit you did not create.
-8. Never edit a note in the peer's `for-<peer>/` directory, and never edit a note in
-   `active/` that you did not claim.
-9. Release locks before writing a handoff and before stopping.
-10. State assumptions as assumptions.
+8. Never edit a note in another agent class's `handoff/for-<agent-class>/` directory, and
+   never edit a note in another instance's `active/<instance>/` directory.
+9. Only claim handoffs addressed to your agent class (matching `to_class`) and to you
+   specifically or `to_instance: any`.
+10. Release locks before writing a handoff and before stopping.
+11. State assumptions as assumptions.
 
 ## Deliberate non-goals
 
-- **No queue, no priorities, no scheduler.** Two agents and a human do not need one, and
-  the mechanism would cost more than the contention it resolves.
-- **No automatic conflict resolution.** If both agents changed the same file, a human
-  decides. The protocol's job is to make that rare and visible, not to merge.
-- **No enforcement.** Nothing here is checked by a hook. It works because both agents
+- **No queue, no priorities, no scheduler.** Multiple agents and a human do not need one,
+  and the mechanism would cost more than the contention it resolves. Agents pick work by
+  reading their `handoff/for-<agent-class>/` directory.
+- **No automatic conflict resolution.** If multiple agents want the same scope, one blocks
+  and picks different work. If both changed the same file (protocol violation), a human
+  decides. The protocol's job is to make collisions rare and visible, not to merge.
+- **No enforcement.** Nothing here is checked by a hook. It works because all agents
   follow it, so it is written to be followed under time pressure rather than to be
   complete.

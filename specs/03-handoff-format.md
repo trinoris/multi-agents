@@ -22,38 +22,49 @@ message, and all of it is what the peer needs.
 ## Lifecycle
 
 ```text
-write     handoff/for-<peer>/<ISO8601>-<slug>.md     author releases locks first
-claim     mkdir claims/<note>.claim  (atomic)        then mv → active/, then rmdir
-finish    mv → archive/<same-name>.md                append ## Outcome
+write     handoff/for-<agent-class>/<ISO8601>-<slug>.md     author releases locks first
+claim     mkdir claims/<note>.claim  (atomic)               check to_class + to_instance
+          mv → active/<agent-instance>/<note>, rmdir claim
+finish    mv → archive/<same-name>.md                       append ## Outcome
+          update archive/INDEX.md
 ```
 
 The claim is the **`mkdir`**, not the `mv`. `mkdir` is the only primitive verified atomic
 on this filesystem; `mv -n` is not — it is stat-then-rename and returns success when it
-declines, so two racing agents both conclude they claimed the note (measured: 2 claimers
-of 8 racers). See spec 02, "two primitives that looked right and were not".
+declines, so two racing agent instances both conclude they claimed the note (measured: 2
+claimers of 8 racers). See spec 02, "two primitives that looked right and were not".
 
 Claiming is still a move rather than editing a `status:` field in place, because an
 in-place edit is a read-then-write race with no atomic step at all.
 
 Rules:
 
-- The author releases its locks **before** writing the note, so the peer can act at once.
-  A handoff that arrives with the scope still locked is a handoff the peer cannot use.
-- Never edit a note in the peer's `for-<peer>/` directory. It is theirs from the moment it
-  is written.
-- Never edit a note in `active/` you did not claim.
+- The author releases its locks **before** writing the note, so peers can act at once.
+  A handoff that arrives with the scope still locked is a handoff peers cannot use.
+- Never edit a note in another agent class's `handoff/for-<agent-class>/` directory. It
+  belongs to that class from the moment it is written.
+- Never edit a note in another instance's `active/<instance>/` directory.
 - `archive/` is append-only in spirit. It is the project's record of who did what and why;
   keep it honest rather than tidy.
+- When moving a note to `archive/`, update `archive/INDEX.md` with a one-line entry:
+  ```markdown
+  - `2026-10-25T1402-rename-engine-fields.md` — [engine, specs] — codex-gpt-6-a3f2 — completed: fields renamed, tests pass
+  ```
+  Format: `- <filename> — [scopes] — <agent-instance> — <outcome>`. This makes "what
+  happened to `engine` last week?" a search through one file instead of reading every
+  archived note.
 
 ## Format
 
 Frontmatter, then fixed sections. Both are required — the sections exist because each one
-is a question the peer will otherwise have to ask.
+is a question peers will otherwise have to ask.
 
 ```markdown
 ---
-from: claude
-to: codex
+from_instance: codex-gpt-6-a3f2
+from_class: codex-gpt-6
+to_class: claude-opus-5                # any instance of claude-opus-5 can claim
+to_instance: any                       # or: claude-opus-5-x9k2 (specific instance)
 created: 2026-10-25T14:02:00Z
 scopes: [engine, specs]
 branch: refactor/feature-to-app
@@ -83,7 +94,7 @@ Everything believed but unchecked, each marked. Be generous here.
 The single next action you would take. Not a list of options.
 
 ## Do not touch
-Paths or state the peer must leave alone, and why. Omit the section if nothing applies.
+Paths or state peers must leave alone, and why. Omit the section if nothing applies.
 
 ## Rollback
 How to undo what landed, if it needs undoing.
@@ -93,9 +104,9 @@ How to undo what landed, if it needs undoing.
 
 | Value | Means |
 | --- | --- |
-| `handoff` | Work is in a good state; peer should continue it |
+| `handoff` | Work is in a good state; any instance of the target class should continue it |
 | `blocked` | Work cannot proceed; `## Next step` says what would unblock it |
-| `fyi` | No action needed; recorded so the peer is not surprised |
+| `fyi` | No action needed; recorded so instances of the target class are not surprised |
 
 A `blocked` note is the most valuable kind and the easiest to skip writing. Write it.
 
@@ -106,7 +117,7 @@ This is the load-bearing part of the format.
 - **Verified** — you ran it and saw the result. Cite command and outcome.
 - **Assumed** — you have not. Mark `(not verified)`.
 
-A handoff that presents assumptions as facts is worse than no handoff: the peer builds on
+A handoff that presents assumptions as facts is worse than no handoff: peers build on
 it, the error compounds, and the original uncertainty is now invisible. **If you cannot
 decide which column something belongs in, it is assumed.**
 
@@ -118,15 +129,18 @@ repos meets one habit, not two.
 
 | Anti-pattern | Why it fails |
 | --- | --- |
-| Narrating the session chronologically | The peer needs current state, not a transcript |
+| Narrating the session chronologically | Peers need current state, not a transcript |
 | "Updated several files" | Unactionable. Give paths and line numbers |
-| Listing three options in `## Next step` | Pushes your synthesis onto the peer. Decide, and note the alternative under Assumed if genuinely open |
+| Listing three options in `## Next step` | Pushes your synthesis onto peers. Decide, and note the alternative under Assumed if genuinely open |
 | Writing the note, then continuing to edit | The note becomes fiction the moment you do. Release, write, stop |
 | Omitting `## Assumed` because everything felt fine | The absence claims total verification. If nothing is assumed, say "Nothing" explicitly |
-| A stale note left in `for-<peer>/` for days | Either it still matters — claim it — or archive it with an Outcome saying it lapsed |
+| A stale note left in `for-<agent-class>/` for days | Either it still matters — claim it — or archive it with an Outcome saying it lapsed |
+| Addressing to the wrong agent class | `to_class: codex-gpt-6` for a task requiring design/architecture (better for `claude-opus-5`) |
 
 ## Open questions
 
 - `(pending)` Should notes carry an explicit `expires` field? A handoff about a branch that
   has since moved on is misleading, and nothing currently detects that.
-- `(pending)` Whether `archive/` needs an index, or `git log` over the directory suffices.
+- **Resolved** — Archive needs an index: `archive/INDEX.md` with one-line entries per note,
+  added when the note is archived. Makes history searchable without `grep -r` over hundreds
+  of files.

@@ -33,17 +33,24 @@ scratch versions used for this run.
 | `MA-T03` | PASS | Malformed lock with fresh dir mtime not breakable; with mtime older than grace it is; unparseable `holder.json` behaves as malformed |
 | `MA-T04` | PASS **after a fix** | Originally **FAILED**: `mv -n` gave 2 claimers from 8 racers (21/100 trials; 31/100 at N=32). Fixed with an atomic `mkdir` claim marker before the `mv` — 0 failures at N=8 and N=32 over 100 trials. Hardlink also passed, rejected for Windows fragility |
 | `MA-T05` | PASS | ABA confirmed: after eviction the lock directory is indistinguishable from the original; the `agent` field in `holder.json` is the only thing revealing the loss. Re-verify detects it correctly |
-| `MA-T06` | not written | |
-| `MA-T07` | not written | |
-| `MA-T08` | not written | |
-| `MA-T09` | not written | |
+| `MA-T06` | not written | **Incident visibility**: acquiring a scope after being evicted detects the incident file; re-verify failure prompts incident check |
+| `MA-T07` | not written | **Scope registry ordering**: scopes acquired out of order are detectable; all entry points reference the registry |
+| `MA-T08` | not written | **Handoff format validation**: parser rejects notes missing required sections (`## Verified`, `## Assumed`, `## Next step`); accepts when `## Assumed` contains "Nothing" |
+| `MA-T09` | not written | **Heartbeat handling**: expired lease + fresh heartbeat (<3min) defers breakability; expired lease + stale heartbeat breakable; missing heartbeat does not affect live lease |
 | `MA-T10` | PASS | **Both directions.** WSL-created lock blocks PowerShell `New-Item`; Windows-created lock blocks WSL `mkdir`; each side reads the other's `holder.json`. Automatable after all — see below |
-| `MA-T11` | not written | |
+| `MA-T11` | not written | **Protocol drift detection**: consuming repo's `PROTOCOL.md` diverges from source, detected by hash or version header |
 | `MA-T12` | PASS **new** | **Break race.** Delete-then-recreate double-breaks: 25/60 failures at N=8, 59/60 at N=32. Rename-aside also double-breaks (2 takeovers at N=8) because the lock name frees instantly. Fixed with the `<scope>.breaking` token — 0 failures at N=8 and N=32 over 60 trials |
+| `MA-T13` | not written | **Git scope pre-check**: acquiring `git` for branch mutation while peer locks are live is rejected; commits/index ops allowed |
+| `MA-T14` | not written | **Instance competition**: multiple instances of same agent class (e.g., codex-gpt-6-a, codex-gpt-6-b, codex-gpt-6-c) compete for handoffs in `for-codex-gpt-6/`, exactly one claims each via atomic mkdir |
+| `MA-T15` | not written | **Class-based routing**: handoff with `to_class: codex-gpt-6` is not claimable by `claude-opus-5` instances; handoff with `to_class: any` is claimable by all |
+| `MA-T16` | not written | **Instance-specific addressing**: handoff with `to_instance: codex-gpt-6-a3f2` is claimable only by that instance; `to_instance: any` claimable by any instance of the target class |
 
 `MA-T01`, `MA-T10` and `MA-T12` are the three that justify this repo existing. The rest
 test rules; those three test the physics the rules assume — and two of them disproved this
 spec as first written.
+
+`MA-T14`, `MA-T15`, `MA-T16` test the agent class/instance model that enables N instances
+of the same model to work in parallel.
 
 ## Test approach
 
@@ -54,7 +61,9 @@ processes and two platforms, which cannot be mocked without testing the mock.
 tests/
 ├── concurrency/     N-process races: mkdir, claim, lock-break   (MA-T01, T04, T12)
 ├── lifecycle/       lease expiry, malformed locks, ABA          (MA-T02, T03, T05)
-├── lint/            scope registry, handoff format, drift      (MA-T07..T09, T11)
+├── protocol/        incidents, heartbeat, git pre-check         (MA-T06, T09, T13)
+├── routing/         class/instance addressing, competition      (MA-T14, T15, T16)
+├── lint/            scope registry, handoff format, drift       (MA-T07, T08, T11)
 └── cross-platform/  WSL <-> Windows via powershell.exe          (MA-T10)
 ```
 
@@ -101,6 +110,23 @@ pressure, and the only way to trust the incident trail is to have seen it produc
 - `MA-07` Breaking a lock always acquires `<scope>.breaking` first. `MA-T12` is the guard.
   A break implementation that skips the token passes casual testing and fails under load,
   which is the worst combination available.
+- `MA-08` **NEW** Acquiring `git` for branch mutation checks for peer locks first.
+  `MA-T13` is the guard. This is the highest-risk operation in the protocol.
+- `MA-09` **NEW** Long operations (>5min) emit heartbeats every 2 minutes. Peers check
+  heartbeats before breaking expired leases. `MA-T09` validates the logic.
+- `MA-10` **NEW** Acquiring any scope checks `incidents/` for recent events in that scope.
+  `MA-T06` validates detection.
+- `MA-11` **NEW** Agent instances correctly identify themselves with `agent_instance` and
+  `agent_class` in all `holder.json` and heartbeat files.
+- `MA-12` **NEW** Handoff claiming respects `to_class` and `to_instance` fields. MA-T14,
+  T15, T16 validate routing logic.
+- `MA-13` **NEW** Multiple instances of same agent class can work in parallel on different
+  scopes without collision.
+- `MA-14` **CLI** A tool implementing spec 06 can be invoked with just `--class` and works.
+- `MA-15` **CLI** Status commands provide actionable info without requiring work.
+- `MA-16` **CLI** Configuration file, flags, and environment variables follow precedence.
+- `MA-17` **CLI** Daemon mode responds to SIGTERM with graceful shutdown.
+- `MA-18` **CLI** `init` command creates valid structure that passes `verify` command.
 
 ## Honest limits
 

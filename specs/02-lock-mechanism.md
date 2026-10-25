@@ -114,6 +114,31 @@ and silently overwriting its peer.
 This is an ABA problem: the lock directory exists at step 4 exactly as it did at step 1, so
 *presence* is not evidence of ownership. Only the `agent` field in `holder.json` is.
 
+### Worked example
+
+```text
+T+00:00  Agent A: mkdir locks/engine.lock → success
+T+00:01  Agent A: write holder.json { agent: "claude", expires_at: T+15:00 }
+T+00:02  Agent A: begins expensive analysis (6 minutes, no checkpoints)
+T+15:00  Agent A: still working, lease expires (missed renewal window)
+T+20:00  Agent B: reads holder.json → expired beyond grace
+T+20:01  Agent B: mkdir locks/engine.breaking → success
+T+20:02  Agent B: writes incident, mv locks/engine.lock → incidents/...
+T+20:03  Agent B: mkdir locks/engine.lock → success (fresh lock)
+T+20:04  Agent B: write holder.json { agent: "codex", expires_at: T+35:04 }
+T+20:05  Agent B: starts editing engine/core.js
+T+06:02  Agent A: finishes analysis
+T+06:03  Agent A: checks "locks/engine.lock exists?" → YES ✓
+         --- WITHOUT RE-VERIFY, A WRITES NOW AND DESTROYS B'S WORK ---
+T+06:04  Agent A: (WITH RE-VERIFY) reads holder.json → agent: "codex"
+T+06:05  Agent A: I DO NOT HOLD THIS LOCK, abort and re-acquire
+```
+
+The lock directory at T+06:03 is indistinguishable from the one at T+00:00 from A's
+perspective. Only the contents of `holder.json` reveal the eviction. This is why the
+re-verify rule exists and why it must happen **immediately before writes**, not once at
+the start of a session.
+
 ## What the mechanism does not protect against
 
 Stated plainly so nobody relies on it for more than it does:

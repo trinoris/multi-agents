@@ -1,0 +1,82 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+*.tsbuildinfo
+
+# Testing
+coverage/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Turbo
+.turbo/
+
+# Python (legacy - keep during migration)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+venv/
+ENV/
+env/
+
+# Coordination protocol (runtime state - don't commit)
+coordination/locks/*
+coordination/claims/*
+coordination/active/*
+!coordination/locks/.gitkeep
+!coordination/claims/.gitkeep
+!coordination/active/.gitkeep
+
+# Keep coordination structure but not state
+coordination/handoff/*
+!coordination/handoff/.gitkeep
+coordination/heartbeat/*
+!coordination/heartbeat/.gitkeep
+
+# Archive and incidents are kept (historical record)
+# coordination/archive/
+# coordination/incidents/
+
+# Test artifacts
+tests/.test-atomicity/

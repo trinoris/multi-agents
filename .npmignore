@@ -1,0 +1,30 @@
+# Source files (only ship dist/)
+src/
+*.ts
+!*.d.ts
+tsconfig.json
+tsup.config.ts
+
+# Tests
+*.test.ts
+*.spec.ts
+__tests__/
+tests/
+coverage/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Development
+.vscode/
+.idea/
+*.swp
+
+# Build artifacts
+*.tsbuildinfo
+
+# CI/CD
+.github/
+.changeset/

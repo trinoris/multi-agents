@@ -6,10 +6,57 @@ Proprietary and confidential.
 
 # trinoris-multi-agents
 
-Coordination protocol for two coding agents sharing one working tree — **claude**
-(Claude Code) and **codex** (Codex CLI), each in its own terminal.
+Coordination protocol for multiple coding agents sharing one working tree, organized by
+**model class** (e.g., `codex-gpt-6`, `claude-opus-5`) with support for multiple
+**instances** of each class running in parallel.
 
-## Status: SPECS + VERIFICATION HARNESSES — no production implementation
+**Repository:** https://github.com/trinoris/multi-agents.git
+
+## Status: PHASE 1 IN PROGRESS — First handoff validated ✅
+
+**Current Status:** Phase 1 started, protocol validated with real execution  
+**Next:** Parallel execution testing (2 agents, different scopes)
+
+### What's Working
+
+**Phase 0 Complete (2026-10-25T12:29):**
+- ✅ trinoris-agent CLI v0.1.0 (setup + verify commands)
+- ✅ MA-T01: 100/100 trials on ext4 and v9fs (WSL2)
+- ✅ Automated test suite: 10/10 tests pass
+- ✅ Generates AGENTS.md and .claude/skills for AI agents
+
+**Phase 1 Started (2026-10-25T11:36):**
+- ✅ First handoff executed successfully (test-update-phase1-start)
+- ✅ All protocol steps validated:
+  - Atomic claim (mkdir token pattern)
+  - Lock acquisition (mkdir + holder.json)
+  - Re-verify before write (ABA prevention)
+  - Lock release (clean removal)
+  - Handoff archiving (with outcome)
+- ✅ Command count: 11 bash commands (matches 10-12 estimate)
+- ✅ Duration: ~2 minutes from claim to archive
+- ✅ Zero issues encountered
+
+**Installation:**
+```bash
+cd trinoris-agent
+pip install -e .
+trinoris-agent setup     # Initialize in any project
+trinoris-agent verify    # Verify atomicity and structure
+```
+
+See [`PHASE-0-COMPLETE.md`](PHASE-0-COMPLETE.md) and [`PHASE-1-STARTED.md`](PHASE-1-STARTED.md) for full details.
+
+### Quick Links
+
+- [Specifications](specs/) — 6 complete specs
+- [CLI Documentation](trinoris-agent/README.md) — Installation & usage
+- [Phase 0 Summary](PHASE-0-COMPLETE.md) — CLI implementation
+- [Phase 1 Summary](PHASE-1-STARTED.md) — First handoff validation
+- [Implementation Plan](IMPLEMENTATION-PLAN.md) — Roadmap
+
+
+---
 
 Deliberately spec-first. The mechanism's failure mode is silent data loss, so the design
 was settled and raced on purpose before any production code exists.
@@ -19,6 +66,9 @@ an atomic claim, and breaking a stale lock by delete-then-recreate double-breaks
 load. Both are fixed and re-verified; both are recorded in
 [`specs/02-lock-mechanism.md`](specs/02-lock-mechanism.md) because each is the obvious
 answer and will be proposed again.
+
+**Implementation plan:** See [`IMPLEMENTATION-PLAN.md`](IMPLEMENTATION-PLAN.md) for phased
+adoption roadmap (4-6 weeks, specification to production).
 
 ## What it is
 
@@ -40,7 +90,8 @@ share: **the filesystem**.
 | [`02-lock-mechanism.md`](specs/02-lock-mechanism.md) | Why `mkdir` and not `flock`, the two-step acquire window, lease tuning, deadlock prevention by scope ordering, the ABA case — and what the mechanism does not protect against |
 | [`03-handoff-format.md`](specs/03-handoff-format.md) | Note format, claim-by-`mv`, the verified/assumed split, anti-patterns |
 | [`04-agent-entry-points.md`](specs/04-agent-entry-points.md) | Binding each tool: Claude's `SKILL.md`, Codex's `AGENTS.md`, thin pointers only |
-| [`05-verification.md`](specs/05-verification.md) | `MA-T01…T11`, the adoption sequence, and the rules that are honestly untestable |
+| [`05-verification.md`](specs/05-verification.md) | `MA-T01…T16`, the adoption sequence, and the rules that are honestly untestable |
+| [`06-cli-interface.md`](specs/06-cli-interface.md) | Command-line interface, configuration format, operational modes (interactive/once/daemon), status commands |
 
 ## Three design decisions worth knowing up front
 
@@ -55,7 +106,36 @@ registry order, and that total ordering is the only deadlock defence.
 **Presence of a lock is not proof of ownership.** A slow agent whose lease expired and was
 evicted will find the directory exactly as it left it. Only the `agent` field in
 `holder.json` is authority — hence the rule to re-confirm ownership immediately before
-every batch of writes.
+every batch of writes. See spec 02 for the ABA worked example.
+
+## Recent updates (2026-10-25)
+
+### Operational improvements (morning)
+- **Incident visibility** — Acquiring a scope now checks for recent incidents (< 1 hour)
+- **Git scope pre-check** — Branch mutations require checking for peer locks first
+- **Heartbeat for long operations** — Lightweight liveness signal for operations >5 min
+- **Archive index** — `archive/INDEX.md` makes handoff history searchable
+- **ABA worked example** — Timeline showing how re-verify prevents silent data loss
+
+### Agent class/instance model (afternoon)
+- **N-agent support** — Extended from 2 agents to unlimited, organized by model class
+- **Model-based identity** — `codex-gpt-6`, `claude-opus-5`, `claude-sonnet-4` as agent classes
+- **Parallel instances** — Multiple instances of same class work simultaneously
+- **Capability routing** — Handoffs addressed to agent classes (e.g., "any codex-gpt-6")
+- **Instance tracking** — Know which specific agent instance did what work
+
+### CLI interface specification (late afternoon)
+- **Command-line interface** — Flags, commands, operational modes
+- **Configuration format** — `.kiro/coordination.json` with precedence rules
+- **Three modes** — Interactive (human-driven), once (one-shot), daemon (continuous)
+- **Status commands** — `locks`, `handoffs`, `incidents`, `status` (non-destructive)
+- **Protocol initialization** — `init` and `verify` commands
+- **Two integration modes** — Skill-based (AI reads docs, executes bash) and CLI-driven (AI calls trinoris-agent commands)
+
+See [`UPDATES-2026-10-25.md`](UPDATES-2026-10-25.md),
+[`AGENT-CLASSES-2026-10-25.md`](AGENT-CLASSES-2026-10-25.md),
+[`CLI-SPEC-2026-10-25.md`](CLI-SPEC-2026-10-25.md), and
+[`INTEGRATION-MODES-2026-10-25.md`](INTEGRATION-MODES-2026-10-25.md) for full details.
 
 ## Verified environment facts
 

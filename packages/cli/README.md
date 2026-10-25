@@ -32,4 +32,5 @@ If it fails, the protocol does not apply to that filesystem and must not be inst
 
 ## License
 
-`UNLICENSED` — all rights reserved. See LICENSE.
+MIT — see [LICENSE](./LICENSE).
+

@@ -1,6 +1,5 @@
 /**
- * © 2026 TRINORIS. All rights reserved.
- * Proprietary and confidential.
+ * © 2026 TRINORIS. MIT licensed — see LICENSE.
  *
  * @trinoris/agent-sdk — the filesystem lock engine, for agents and tools that need the
  * protocol programmatically rather than through the CLI.

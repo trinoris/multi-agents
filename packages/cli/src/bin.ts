@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /**
- * © 2026 TRINORIS. All rights reserved.
- * Proprietary and confidential.
+ * © 2026 TRINORIS. MIT licensed — see LICENSE.
  *
  * trinoris-agent — coordination CLI.
  *

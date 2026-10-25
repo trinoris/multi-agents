@@ -1,6 +1,5 @@
 /**
- * © 2026 TRINORIS. All rights reserved.
- * Proprietary and confidential.
+ * © 2026 TRINORIS. MIT licensed — see LICENSE.
  */
 
 import type { Lock, HandoffMetadata, Handoff } from './types.js';

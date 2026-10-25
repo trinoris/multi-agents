@@ -42,7 +42,7 @@
   },
   "homepage": "https://github.com/trinoris/multi-agents#readme",
   "author": "TRINORIS",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
     "access": "public"

@@ -34,4 +34,5 @@ so re-confirm with `isHolder()` immediately before each batch of writes.
 
 ## License
 
-`UNLICENSED` — all rights reserved. See LICENSE.
+MIT — see [LICENSE](./LICENSE).
+

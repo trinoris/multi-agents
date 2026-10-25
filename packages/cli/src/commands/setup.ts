@@ -1,6 +1,5 @@
 /**
- * © 2026 TRINORIS. All rights reserved.
- * Proprietary and confidential.
+ * © 2026 TRINORIS. MIT licensed — see LICENSE.
  *
  * `setup` — scaffold coordination/ in a working tree and bind each agent tool to the
  * protocol.

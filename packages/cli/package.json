@@ -47,7 +47,7 @@
     "directory": "packages/cli"
   },
   "author": "TRINORIS",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
     "access": "public"

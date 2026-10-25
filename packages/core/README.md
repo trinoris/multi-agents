@@ -117,7 +117,5 @@ const ordered = sortScopesByRegistry(scopes, DEFAULT_SCOPE_REGISTRY);
 
 ## License
 
-## License
+MIT — see [LICENSE](./LICENSE).
 
-`UNLICENSED` — published publicly for use with the Trinoris
-coordination protocol. All rights reserved; see LICENSE.

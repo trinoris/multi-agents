@@ -437,3 +437,23 @@ version. `scripts/release.sh` refuses to run without pnpm for this reason.
 
 `agent-core` → `agent-sdk` → `agent-cli`. Publishing the CLI first would put a version on
 the registry whose dependencies do not exist yet.
+
+## License decision (2026-10-25): MIT
+
+`UNLICENSED` was wrong for a public publish and was briefly self-contradictory here: the
+field said "no rights granted" while the LICENSE file said "you may install and use these
+packages". Resolved to **MIT** across all three packages.
+
+Why MIT rather than keeping it proprietary: these are a CLI and an SDK whose whole purpose
+is to be installed into other repositories. A package that may be downloaded but not
+lawfully used has no audience.
+
+**This is a one-way door per version.** Once `@trinoris/agent-core@0.1.0` is published
+under MIT, that version is permanently MIT — npm versions cannot be reused, and a
+published grant cannot be retracted. Later versions may change license; already-published
+ones cannot.
+
+Scope note: the root `LICENSE` is MIT, which reads as covering the whole repository —
+specs, tests and ADRs included. The `packages/*` sources were updated to match. If only
+the three published packages are meant to be MIT and the specs are to stay proprietary,
+the root LICENSE needs scoping and the spec headers left as they were. **Not decided.**

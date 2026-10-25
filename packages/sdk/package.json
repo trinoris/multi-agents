@@ -43,7 +43,7 @@
     "directory": "packages/sdk"
   },
   "author": "TRINORIS",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
     "access": "public"

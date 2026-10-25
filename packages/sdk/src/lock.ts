@@ -1,6 +1,5 @@
 /**
- * © 2026 TRINORIS. All rights reserved.
- * Proprietary and confidential.
+ * © 2026 TRINORIS. MIT licensed — see LICENSE.
  *
  * Filesystem lock engine. Implements specs/01 + specs/02 exactly, including the two
  * primitives that verification disproved:

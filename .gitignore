@@ -63,45 +63,45 @@ env/
 
 # Coordination protocol (runtime state - don't commit)
 /.trinoris/
-coordination/locks/*
-coordination/claims/*
-coordination/active/*
-!coordination/locks/.gitkeep
-!coordination/claims/.gitkeep
-!coordination/active/.gitkeep
+.trinoris/locks/*
+.trinoris/claims/*
+.trinoris/active/*
+!.trinoris/locks/.gitkeep
+!.trinoris/claims/.gitkeep
+!.trinoris/active/.gitkeep
 
-# Keep coordination structure but not state
-coordination/handoff/*
-!coordination/handoff/.gitkeep
-coordination/heartbeat/*
-!coordination/heartbeat/.gitkeep
+# Keep .trinoris structure but not state
+.trinoris/handoff/*
+!.trinoris/handoff/.gitkeep
+.trinoris/heartbeat/*
+!.trinoris/heartbeat/.gitkeep
 
 # Archive and incidents are kept (historical record)
-# coordination/archive/
-# coordination/incidents/
+# .trinoris/archive/
+# .trinoris/incidents/
 
 # Test artifacts
 tests/.test-atomicity/
 
-# ── coordination/ runtime state ───────────────────────────────────────────────
+# ── .trinoris/ runtime state ───────────────────────────────────────────────
 # Ephemeral: never commit. A committed lock is a PHANTOM LOCK — a fresh clone
 # would see `locks/engine.lock` held by an agent that is not running, and the
 # protocol forbids breaking it until its lease expires. Committed inside the
 # 15-minute window, that blocks a scope on every clone for no reason.
-coordination/locks/
-coordination/claims/
-coordination/heartbeat/
-coordination/active/
-coordination/.test-atomicity/
+.trinoris/locks/
+.trinoris/claims/
+.trinoris/heartbeat/
+.trinoris/active/
+.trinoris/.test-atomicity/
 
 # In-flight handoff notes are local to one working tree: the protocol is
 # per-working-tree, because the thing it protects is a working tree (spec 04).
 # Keep the inbox directories, not their contents.
-coordination/handoff/**/*.md
+.trinoris/handoff/**/*.md
 
 # Raw evidence from broken locks (moved-aside lock dirs). The incident .md
 # records ARE kept — they are the audit trail.
-coordination/incidents/*.stale/
+.trinoris/incidents/*.stale/
 
 # Reviewed release tarballs and audit/test evidence (never credentials)
 .release-artifacts/

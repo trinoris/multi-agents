@@ -70,8 +70,10 @@ Rules:
 
 ## Format
 
-Frontmatter, then fixed sections. Both are required — the sections exist because each one
-is a question peers will otherwise have to ask.
+Frontmatter carries routing — who, to whom, what scope, whether locks are clear — because
+the claim mechanism and conflict checks depend on it. The body is a fixed set of sections.
+Both are required — the frontmatter exists because the filesystem lifecycle needs it; the
+sections exist because each one is a question peers will otherwise have to ask.
 
 ```markdown
 ---
@@ -79,48 +81,79 @@ from_instance: codex-gpt-6-a3f2
 from_class: codex-gpt-6
 to_class: claude-opus-5                # any instance of claude-opus-5 can claim
 to_instance: any                       # or: claude-opus-5-x9k2 (specific instance)
-created: 2026-10-25T14:02:00Z
 scopes: [engine, specs]
-branch: refactor/feature-to-app
-head: 6d7956bd
 locks_released: true
-status: handoff          # handoff | blocked | fyi
 ---
 
-# <one line: the outcome, not the activity>
+# Context Handoff
+
+Updated: 2026-10-25 14:02 UTC
+Task: <short task name>
+Status: in-progress | blocked | ready-for-review | complete
+Branch: refactor/feature-to-app
+Base commit: 6d7956bd
 
 ## Goal
-Why this work exists. One or two sentences. Link the spec or issue driving it.
+Requested outcome and acceptance criteria. Link the spec or issue driving it.
 
-## What I did
-Concrete changes, with paths. `engine/auth.js:638` beats "updated auth".
+## User Constraints
+Explicit requirements, preferences, and scope boundaries.
 
-## Verified
-Evidence only. Command → result.
-- `cd engine && npm test` → 83 files, 1,973 passed
-- `GET /projects/{id}/features` on the scratch tenant → `[]`
+## Current State
+- Completed: <implemented result>
+- In progress: <unfinished work>
+- Remaining: <required work>
 
-## Assumed / not verified
-Everything believed but unchecked, each marked. Be generous here.
-- The authorizer path is unaffected **(not verified)** — no test covers it
+## Changes
+| Path | Change | Reason |
+| --- | --- | --- |
+| `engine/auth.js:638` | ... | ... |
 
-## Next step
-The single next action you would take. Not a list of options.
+## Decisions
+- <Decision>: <reason>
+  - Evidence: <file, commit, issue, or URL>
+  - Status: accepted | proposed
 
-## Do not touch
-Paths or state peers must leave alone, and why. Omit the section if nothing applies.
+## Verification
+| Check | Result | Scope / limitations |
+| --- | --- | --- |
+| `cd engine && npm test` | PASS | 83 files, 1,973 passed |
 
-## Rollback
-How to undo what landed, if it needs undoing.
+Verified at commit: <SHA, or "working tree">. Describe edits made after verification, if any.
+
+## Failed Attempts
+- Attempt: <what was tried>
+- Result: <observed failure>
+- Implication: <what the next agent should avoid or investigate>
+
+## Blockers and Unknowns
+- <Issue, its impact, and what would resolve it.>
+- Clearly label assumptions and unverified claims, e.g. **(not verified)**.
+
+## Next Actions
+1. <Concrete first action, including file or command>
+2. <Next action>
+3. <Final validation or delivery step>
+
+## Resume Instructions
+1. Read AGENTS.md and this file.
+2. Check `git status` and the current diff.
+3. Verify branch and commit against this handoff.
+4. Load relevant memory files and source code.
+5. Continue from Next Actions.
+
+## References
+- Relevant source paths, issues, PRs, and documentation
 ```
 
 ### `status`
 
 | Value | Means |
 | --- | --- |
-| `handoff` | Work is in a good state; any instance of the target class should continue it |
-| `blocked` | Work cannot proceed; `## Next step` says what would unblock it |
-| `fyi` | No action needed; recorded so instances of the target class are not surprised |
+| `in-progress` | Work continues in a good state; the next instance of the target class should pick it up |
+| `blocked` | Work cannot proceed; `## Next Actions` says what would unblock it |
+| `ready-for-review` | Author's side is done; needs a peer or human review before continuing |
+| `complete` | Task is finished; nothing further is needed — kept for the audit trail |
 
 A `blocked` note is the most valuable kind and the easiest to skip writing. Write it.
 
@@ -128,12 +161,13 @@ A `blocked` note is the most valuable kind and the easiest to skip writing. Writ
 
 This is the load-bearing part of the format.
 
-- **Verified** — you ran it and saw the result. Cite command and outcome.
-- **Assumed** — you have not. Mark `(not verified)`.
+- **Verified** — you ran it and saw the result. Put it in `## Verification` as a row:
+  exact command, PASS/FAIL, and any scope/limitations.
+- **Assumed** — you have not. Put it in `## Blockers and Unknowns`, marked `(not verified)`.
 
 A handoff that presents assumptions as facts is worse than no handoff: peers build on
 it, the error compounds, and the original uncertainty is now invisible. **If you cannot
-decide which column something belongs in, it is assumed.**
+decide which section something belongs in, it is assumed.**
 
 This mirrors the convention already in use across the Control Tower specs
 (`(not verified)` markers; RED/GREEN expected-today columns), so an agent moving between
@@ -144,10 +178,10 @@ repos meets one habit, not two.
 | Anti-pattern | Why it fails |
 | --- | --- |
 | Narrating the session chronologically | Peers need current state, not a transcript |
-| "Updated several files" | Unactionable. Give paths and line numbers |
-| Listing three options in `## Next step` | Pushes your synthesis onto peers. Decide, and note the alternative under Assumed if genuinely open |
+| "Updated several files" in prose instead of the `## Changes` table | Unactionable. One row per change, with paths and line numbers |
+| Listing three options in `## Next Actions` | Pushes your synthesis onto peers. Decide, and note the alternative under `## Blockers and Unknowns` if genuinely open |
 | Writing the note, then continuing to edit | The note becomes fiction the moment you do. Release, write, stop |
-| Omitting `## Assumed` because everything felt fine | The absence claims total verification. If nothing is assumed, say "Nothing" explicitly |
+| Omitting `## Blockers and Unknowns` because everything felt fine | The absence claims total verification. If nothing is assumed, say "Nothing" explicitly |
 | A stale note left in `for-<agent-class>/` for days | Either it still matters — claim it — or archive it with an Outcome saying it lapsed |
 | Addressing to the wrong agent class | `to_class: codex-gpt-6` for a task requiring design/architecture (better for `claude-opus-5`) |
 

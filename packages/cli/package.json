@@ -1,6 +1,6 @@
 {
   "name": "@trinoris/agent-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Multi-agent coordination CLI \u2014 scope locks, handoffs, stale-lock recovery",
   "type": "module",
   "bin": {
@@ -33,7 +33,7 @@
     "@types/node": "^20.11.0",
     "tsup": "^8.0.0",
     "typescript": "^5.3.0",
-    "vitest": "^1.0.0"
+    "vitest": "^4.0.0"
   },
   "keywords": [
     "coordination",

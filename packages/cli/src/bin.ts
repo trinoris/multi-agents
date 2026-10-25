@@ -90,13 +90,21 @@ if (cmd === 'verify') {
   void (async () => {
   const trials = Number(arg('trials', '50'));
   const conc = Number(arg('concurrency', '8'));
+  if (!Number.isInteger(trials) || trials < 1) die('--trials must be a positive integer');
+  if (!Number.isInteger(conc) || conc < 2) die('--concurrency must be an integer of at least 2');
   console.log(`Racing ${conc} processes x ${trials} trials...`);
   const r = await verify(workDir, trials, conc);
   console.log(`  filesystem      ${r.filesystem}`);
   console.log(`  structure       ${r.structureOk ? 'ok' : 'INCOMPLETE'}`);
   console.log(`  config          ${r.configOk ? 'ok' : 'MISSING'}`);
-  console.log(`  mkdir atomicity ${r.atomicityOk ? `ATOMIC (${r.totalWinners}/${r.trials} trials, exactly one winner each)` : `NOT ATOMIC (${r.badTrials} bad trials)`}`);
+  if (r.atomicityOk === null) console.log('  mkdir atomicity NOT CHECKED (probe failed)');
+  else if (r.atomicityOk) console.log(`  mkdir atomicity ATOMIC (${r.totalWinners}/${r.trials} trials, exactly one winner each)`);
+  else console.log(`  mkdir atomicity NOT ATOMIC (${r.badTrials} bad trials)`);
   for (const n of r.notes) console.log(`  note: ${n}`);
+  if (r.atomicityOk === null) {
+    console.error('\nPROBE FAILED: the verifier could not determine mkdir atomicity in this environment.');
+    process.exit(1);
+  }
   if (!r.atomicityOk) {
     console.error('\nGATE FAILED: do not install the protocol in this tree.');
     process.exit(1);

@@ -52,9 +52,9 @@ EOF
         return 1
     fi
     
-    # Do work (add Lessons Learned to PHASE-0-COMPLETE.md)
-    echo "[A] Working on PHASE-0-COMPLETE.md..."
-    cat >> PHASE-0-COMPLETE.md <<'EOF'
+    # Do work (add Lessons Learned to the Phase 0 planning record)
+    echo "[A] Working on docs/planning/PHASE-0-COMPLETE.md..."
+    cat >> docs/planning/PHASE-0-COMPLETE.md <<'EOF'
 
 ## Lessons Learned
 
@@ -93,7 +93,7 @@ EOF
 ✅ Completed successfully in ${DURATION} seconds
 
 - Acquired specs lock
-- Updated PHASE-0-COMPLETE.md with Lessons Learned section
+- Updated docs/planning/PHASE-0-COMPLETE.md with Lessons Learned section
 - Worked for 10 seconds in parallel with agent B
 - Released lock cleanly
 EOF
@@ -153,9 +153,9 @@ EOF
 
 - [Specifications](specs/) — 6 complete specs
 - [CLI Documentation](trinoris-agent/README.md) — Installation & usage
-- [Phase 0 Summary](PHASE-0-COMPLETE.md) — CLI implementation
-- [Phase 1 Summary](PHASE-1-STARTED.md) — First handoff validation
-- [Implementation Plan](IMPLEMENTATION-PLAN.md) — Roadmap
+- [Phase 0 Summary](docs/planning/PHASE-0-COMPLETE.md) — CLI implementation
+- [Phase 1 Summary](docs/planning/PHASE-1-STARTED.md) — First handoff validation
+- [Implementation Plan](docs/planning/IMPLEMENTATION-PLAN.md) — Roadmap
 
 LINKS
             tail -n +$((LINE + 1)) README.md
@@ -170,9 +170,9 @@ LINKS
 
 - [Specifications](specs/) — 6 complete specs
 - [CLI Documentation](trinoris-agent/README.md) — Installation & usage
-- [Phase 0 Summary](PHASE-0-COMPLETE.md) — CLI implementation
-- [Phase 1 Summary](PHASE-1-STARTED.md) — First handoff validation
-- [Implementation Plan](IMPLEMENTATION-PLAN.md) — Roadmap
+- [Phase 0 Summary](docs/planning/PHASE-0-COMPLETE.md) — CLI implementation
+- [Phase 1 Summary](docs/planning/PHASE-1-STARTED.md) — First handoff validation
+- [Implementation Plan](docs/planning/IMPLEMENTATION-PLAN.md) — Roadmap
 EOF
     fi
     

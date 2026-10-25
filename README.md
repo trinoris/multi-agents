@@ -1,174 +1,137 @@
 <!--
 © 2026 TRINORIS. All rights reserved.
-Proprietary and confidential.
+Proprietary and confidential, except for the separately licensed packages described below.
 -->
 
+# Trinoris Multi-Agent Coordination
 
-# trinoris-multi-agents
+**Safer parallel coding work when AI agents share one working tree.**
 
-Coordination protocol for multiple coding agents sharing one working tree, organized by
-**model class** (e.g., `codex-gpt-6`, `claude-opus-5`) with support for multiple
-**instances** of each class running in parallel.
+Trinoris Multi-Agent Coordination gives coding agents a lightweight way to reserve named
+areas of a repository, identify who owns each reservation, and hand work to another agent
+with a durable note. It is designed for teams using tools such as Codex, Claude, and Kiro
+in the same checkout, where simultaneous edits can otherwise overwrite work or leave
+ownership unclear.
 
-**Repository:** https://github.com/trinoris/multi-agents.git
+The project uses the shared filesystem as its coordination layer. It does not require a
+hosted service, message broker, or agent-specific integration to manage locks and
+handoffs.
 
-## Status: PHASE 1 IN PROGRESS — First handoff validated ✅
+## What it helps with
 
-**Current Status:** Phase 1 started, protocol validated with real execution  
-**Next:** Parallel execution testing (2 agents, different scopes)
+- **Reduce overlapping edits.** Agents reserve agreed repository scopes before writing.
+- **Make ownership visible.** Teammates can inspect active, expired, and malformed locks.
+- **Make handoffs explicit.** A receiving agent claims a handoff note once, then continues
+  from the recorded context, verified facts, assumptions, and next steps.
+- **Recover carefully.** Expired locks can be recovered through a guarded operation that
+  records an incident instead of silently removing ownership data.
+- **Check the environment first.** The verifier races independent processes to confirm
+  whether atomic directory creation works on the actual checkout filesystem.
 
-### What's Working
+## How it works
 
-**Phase 0 Complete (2026-10-25T12:29):**
-- ✅ trinoris-agent CLI v0.1.0 (setup + verify commands)
-- ✅ MA-T01: 100/100 trials on ext4 and v9fs (WSL2)
-- ✅ Automated test suite: 10/10 tests pass
-- ✅ Generates AGENTS.md and .claude/skills for AI agents
-
-**Phase 1 Started (2026-10-25T11:36):**
-- ✅ First handoff executed successfully (test-update-phase1-start)
-- ✅ All protocol steps validated:
-  - Atomic claim (mkdir token pattern)
-  - Lock acquisition (mkdir + holder.json)
-  - Re-verify before write (ABA prevention)
-  - Lock release (clean removal)
-  - Handoff archiving (with outcome)
-- ✅ Command count: 11 bash commands (matches 10-12 estimate)
-- ✅ Duration: ~2 minutes from claim to archive
-- ✅ Zero issues encountered
-
-**Installation:**
-```bash
-pnpm install
-pnpm --filter @trinoris/agent-cli build
-
-node packages/cli/dist/bin.js setup    # scaffold coordination/ in any project
-node packages/cli/dist/bin.js verify   # the adoption gate: is mkdir atomic here?
+```text
+Agent A                         Agent B
+  |                               |
+  | reserve scope: api            | inspect current ownership
+  +---------------+---------------+
+                  |
+          shared repository
+                  |
+       coordination/ records
+       ├── locks/       scope ownership and leases
+       ├── handoff/     work passed between agents
+       └── incidents/  guarded recovery history
 ```
 
-Once published, this becomes `pnpm add -g @trinoris/agent-cli` and the command is simply
-`trinoris-agent`. The `workspace:*` dependencies cannot resolve outside the workspace, so
-a global install is not possible before publishing.
+The protocol is cooperative: agents agree to check and honor the records. Scopes are
+explicit names from a repository registry, rather than file globs, so ownership conflicts
+remain understandable. Locks have leases because agent processes may end between tool
+calls. Before writing, an agent verifies that its identity still owns the scope. Handoff
+claims and lock operations use filesystem primitives selected and tested for the target
+environment.
 
-The Python CLI (`trinoris-agent/`, pip package `trinoris-coordination`) is **removed**. It
-only ever had `setup` and `verify`, both of which the Node CLI now covers, and keeping it
-meant two generators of agent instructions — which drift. Spec 04 names that as worse than
-having no protocol, because each agent then follows its own copy while believing it is
-coordinating.
+## Designed for
 
-See [`PHASE-0-COMPLETE.md`](PHASE-0-COMPLETE.md) and [`PHASE-1-STARTED.md`](PHASE-1-STARTED.md) for full details.
+- Multiple AI coding agents editing different parts of one checkout.
+- A team that wants to coordinate agents without adding a server to its development
+  environment.
+- Work that moves between agents and needs a reviewable record of what was done and what
+  remains.
+- Local or shared filesystems where the verifier confirms the required atomic behavior.
 
-### Quick Links
+It does not coordinate separate clones or branches. It cannot prevent a non-cooperating
+agent, editor, or script from writing without a lock. It does not launch agents, schedule
+tasks, send live notifications, or replace Git workflows. Use branch isolation or a hosted
+coordination service when those capabilities or enforced access controls are required.
 
-- [Specifications](specs/) — 6 complete specs
-- [CLI interface spec](specs/06-cli-interface.md) — commands and exit codes
-- [Phase 0 Summary](PHASE-0-COMPLETE.md) — CLI implementation
-- [Phase 1 Summary](PHASE-1-STARTED.md) — First handoff validation
-- [Implementation Plan](IMPLEMENTATION-PLAN.md) — Roadmap
+## Packages
 
-
----
-
-Deliberately spec-first. The mechanism's failure mode is silent data loss, so the design
-was settled and raced on purpose before any production code exists.
-
-**That paid for itself: testing disproved two parts of the first draft.** `mv -n` is not
-an atomic claim, and breaking a stale lock by delete-then-recreate double-breaks under
-load. Both are fixed and re-verified; both are recorded in
-[`specs/02-lock-mechanism.md`](specs/02-lock-mechanism.md) because each is the obvious
-answer and will be proposed again.
-
-**Implementation plan:** See [`IMPLEMENTATION-PLAN.md`](IMPLEMENTATION-PLAN.md) for phased
-adoption roadmap (4-6 weeks, specification to production).
-
-## What it is
-
-Both agents see the same files and nothing else — no shared memory, no message bus, no way
-to observe each other's reasoning. The protocol is built from the only primitive they
-share: **the filesystem**.
-
-- **Scope locks** — `mkdir` as the atomic primitive, with a lease, because nothing releases
-  a lock when an agent that works in discrete tool calls stops existing.
-- **Handoff notes** — markdown, claimed atomically by `mv`, separating what was *verified*
-  from what was *assumed*.
-- **Incident records** — breaking a lock is allowed; doing it silently is not.
-
-## Specs
-
-| Spec | Contents |
+| Package | Purpose |
 | --- | --- |
-| [`01-coordination-protocol.md`](specs/01-coordination-protocol.md) | **The contract.** Scope registry, lock rules, handoff lifecycle, hard rules. If anything else disagrees with this, this wins |
-| [`02-lock-mechanism.md`](specs/02-lock-mechanism.md) | Why `mkdir` and not `flock`, the two-step acquire window, lease tuning, deadlock prevention by scope ordering, the ABA case — and what the mechanism does not protect against |
-| [`03-handoff-format.md`](specs/03-handoff-format.md) | Note format, claim-by-`mv`, the verified/assumed split, anti-patterns |
-| [`04-agent-entry-points.md`](specs/04-agent-entry-points.md) | Binding each tool: Claude's `SKILL.md`, Codex's `AGENTS.md`, thin pointers only |
-| [`05-verification.md`](specs/05-verification.md) | `MA-T01…T16`, the adoption sequence, and the rules that are honestly untestable |
-| [`06-cli-interface.md`](specs/06-cli-interface.md) | Command-line interface, configuration format, operational modes (interactive/once/daemon), status commands |
+| [`@trinoris/agent-core`](packages/core/) | Shared coordination types and core logic. |
+| [`@trinoris/agent-sdk`](packages/sdk/) | Programmatic API for scopes, leases, handoffs, and guarded recovery. |
+| [`@trinoris/agent-cli`](packages/cli/) | `trinoris-agent` commands for setup, verification, ownership, and handoffs. |
 
-## Three design decisions worth knowing up front
+The CLI guide includes concrete workflows, configuration, examples, and limitations:
+[`packages/cli/README.md`](packages/cli/README.md).
 
-**`flock` is rejected.** It is the textbook answer and it is wrong twice here: advisory
-locks over WSL2's 9p bridge are unreliable, and `flock` releases on process exit — which
-happens after every agent tool call. `mkdir` survives the agent's process ending.
+## Get started from source
 
-**Scopes are a fixed registry, not path globs.** Deciding whether two locks conflict is
-then a string comparison instead of glob-overlap arithmetic. Scopes are acquired in
-registry order, and that total ordering is the only deadlock defence.
+The CLI requires Node.js 18 or later at runtime. Building and running this repository’s
+release test toolchain requires Node.js 20 or later.
 
-**Presence of a lock is not proof of ownership.** A slow agent whose lease expired and was
-evicted will find the directory exactly as it left it. Only the `agent` field in
-`holder.json` is authority — hence the rule to re-confirm ownership immediately before
-every batch of writes. See spec 02 for the ABA worked example.
+```bash
+pnpm install --frozen-lockfile
+pnpm --filter @trinoris/agent-cli build
 
-## Recent updates (2026-10-25)
+# Initialize coordination files in the repository agents will share.
+node packages/cli/dist/bin.js setup --work-dir /path/to/repository
 
-### Operational improvements (morning)
-- **Incident visibility** — Acquiring a scope now checks for recent incidents (< 1 hour)
-- **Git scope pre-check** — Branch mutations require checking for peer locks first
-- **Heartbeat for long operations** — Lightweight liveness signal for operations >5 min
-- **Archive index** — `archive/INDEX.md` makes handoff history searchable
-- **ABA worked example** — Timeline showing how re-verify prevents silent data loss
+# Verify the target filesystem before agents rely on scope locks.
+node packages/cli/dist/bin.js verify --work-dir /path/to/repository
+```
 
-### Agent class/instance model (afternoon)
-- **N-agent support** — Extended from 2 agents to unlimited, organized by model class
-- **Model-based identity** — `codex-gpt-6`, `claude-opus-5`, `claude-sonnet-4` as agent classes
-- **Parallel instances** — Multiple instances of same class work simultaneously
-- **Capability routing** — Handoffs addressed to agent classes (e.g., "any codex-gpt-6")
-- **Instance tracking** — Know which specific agent instance did what work
+Review the generated `AGENTS.md` and `PROTOCOL.md`, then have every participating agent
+use the same coordination directory and follow that protocol. Do not rely on locks unless
+verification passes for the checkout and filesystem configuration they will use.
 
-### CLI interface specification (late afternoon)
-- **Command-line interface** — Flags, commands, operational modes
-- **Configuration format** — `.kiro/coordination.json` with precedence rules
-- **Three modes** — Interactive (human-driven), once (one-shot), daemon (continuous)
-- **Status commands** — `locks`, `handoffs`, `incidents`, `status` (non-destructive)
-- **Protocol initialization** — `init` and `verify` commands
-- **Two integration modes** — Skill-based (AI reads docs, executes bash) and CLI-driven (AI calls trinoris-agent commands)
+Once the CLI package is published, install it globally with:
 
-See [`UPDATES-2026-10-25.md`](UPDATES-2026-10-25.md),
-[`AGENT-CLASSES-2026-10-25.md`](AGENT-CLASSES-2026-10-25.md),
-[`CLI-SPEC-2026-10-25.md`](CLI-SPEC-2026-10-25.md), and
-[`INTEGRATION-MODES-2026-10-25.md`](INTEGRATION-MODES-2026-10-25.md) for full details.
+```bash
+npm install --global @trinoris/agent-cli
+trinoris-agent --help
+```
 
-## Verified environment facts
+## Project design
 
-Measured 2026-10-25 in `/mnt/c/Users/Hai-Linh/trinoris/trinoris-control-tower`:
+- **Filesystem first:** coordination records live beside the work they govern.
+- **Explicit ownership:** each lock identifies an agent instance, scope, task, and lease.
+- **Verify before relying:** filesystem guarantees vary by mount and environment, so the
+  CLI tests the target tree instead of assuming behavior.
+- **Visible recovery:** breaking stale ownership leaves an incident record for later
+  inspection.
+- **Honest boundaries:** the tool makes cooperation easier to follow; it does not enforce
+  cooperation or guarantee that conflicting edits are impossible.
 
-| Fact | Value |
-| --- | --- |
-| Filesystem | `v9fs` (WSL2 ↔ Windows drive) |
-| `mkdir` under real concurrency | **atomic** — 4,200 racing processes (N=2/8/32 × 100 trials), exactly one winner every trial |
-| `mv -n` as a claim | **not atomic** — stat-then-rename; returns success when it declines. 2 claimers from 8 racers |
-| Delete-then-recreate lock break | **double-breaks** — 25/60 failures at N=8, 59/60 at N=32 |
-| Rename-aside lock break | **also double-breaks** — the lock name frees instantly |
-| `mkdir`-token guarded break | **safe** — 0 failures at N=8 and N=32 |
-| WSL ↔ Windows lock visibility | mutually visible, `holder.json` readable both ways |
-| `flock` | present, **rejected** |
+## Learn more
 
-Run 2026-10-25. Harnesses in [`tests/`](tests/) — re-run them on any new filesystem
-before adopting the protocol there.
+- [Coordination protocol](specs/01-coordination-protocol.md)
+- [Lock mechanism and recovery](specs/02-lock-mechanism.md)
+- [Handoff format](specs/03-handoff-format.md)
+- [Agent instruction entry points](specs/04-agent-entry-points.md)
+- [Filesystem verification](specs/05-verification.md)
+- [CLI interface](specs/06-cli-interface.md)
+- [Publishing and release gate](PUBLISHING.md)
 
-## Non-goals
+## Licensing
 
-No queue, no priorities, no scheduler, no automatic conflict resolution, and no
-enforcement. The protocol makes collisions rare and visible between two cooperating
-agents. It is not a sandbox, and it does not defend against an agent that ignores it or a
-human saving over both of them from an editor.
+This repository has split licensing. The implementation packages in `packages/core`,
+`packages/sdk`, and `packages/cli` are licensed under **Apache-2.0**; each package carries
+the license text that ships with its npm distribution. Repository materials outside those
+packages—including the specifications, architecture documents, verification suite, and
+coordination records—are proprietary and are not licensed for reuse by the root
+`LICENSE` file. The Apache-2.0 package license does not grant rights to the TRINORIS name
+or trademarks.
+
+See [`LICENSE`](LICENSE) for the full terms.

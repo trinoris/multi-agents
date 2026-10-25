@@ -6,7 +6,7 @@ Proprietary and confidential.
 
 # 05 — Verification and adoption
 
-## Status: PROPOSED
+## Status: IN PROGRESS — CLI verifier implemented; protocol tests remain tracked below
 
 ## Development philosophy: TDD
 
@@ -54,8 +54,9 @@ of the same model to work in parallel.
 
 ## Test approach
 
-The tests are shell-level, not unit-level — the subject is filesystem behaviour across two
-processes and two platforms, which cannot be mocked without testing the mock.
+Filesystem behavior tests are shell-level — the subject is atomicity across real processes
+and platforms, which cannot be established by mocking. Unit tests cover CLI validation and
+probe-error reporting; they do not replace those filesystem behavior tests.
 
 ```text
 tests/
@@ -67,6 +68,30 @@ tests/
 └── cross-platform/  WSL <-> Windows via powershell.exe          (MA-T10)
 ```
 
+### CLI adoption-gate probe outcomes
+
+The CLI verifier distinguishes three outcomes so an execution restriction cannot be
+mistaken for a filesystem race:
+
+- **ATOMIC** is reported only after every requested trial completed and each worker
+  returned exactly one valid outcome, with one winner per trial.
+- **NOT ATOMIC** is reported only after workers completed normally and the observed
+  winner count violated that condition.
+- **NOT CHECKED / PROBE FAILED** means worker startup, execution, or response validation
+  failed, or workers exceeded the 15-second timeout. This is inconclusive; it must not be
+  recorded as a filesystem atomicity failure.
+
+Codex, IDE, and CI sandboxes may block child processes or filesystem metadata commands.
+The verifier reports those failures separately; `filesystem unknown` is a diagnostic
+warning and does not determine the atomicity result. Rerun the gate with permission to
+create child processes, targeting the same working tree. Do not infer that a different
+temporary directory has the same filesystem behavior. The concurrency setting must be at
+least 2; one worker cannot establish cross-process exclusivity.
+
+The CLI package tests cover invalid trial/concurrency settings, worker spawn failure, and
+worker timeout reporting. The end-to-end adoption gate must still be run on each target
+filesystem because the unit tests do not establish that filesystem's behavior.
+
 **Correction to an earlier claim in this spec.** `MA-T10` was described as impossible to
 automate in one environment. That was wrong: `powershell.exe` is reachable directly from
 WSL, so one harness drives both sides and the test runs unattended. It is a normal
@@ -74,21 +99,20 @@ automated test, not a manual procedure.
 
 ## Adoption
 
-Per working tree, in this order. Nothing here is implemented yet — this is the intended
-sequence, and `MA-T01` gates all of it.
+Per working tree, scaffold once, verify the target tree, then allow agents to coordinate.
+`setup` installs instruction pointers, so do not start concurrent work until `verify`
+passes.
 
 ```text
- 0. MA-T01 passes on the target filesystem. If mkdir is not atomic under real
+ 0. Run `trinoris-agent setup` to create coordination/ and the agent instruction pointers.
+ 1. MA-T01 passes on the target filesystem. If mkdir is not atomic under real
     concurrency there, the protocol does not apply to that tree and must not be
-    installed. This is a gate, not a formality.
- 1. Create coordination/ scaffolding.
- 2. Install PROTOCOL.md (copy; pending the spec 04 decision).
- 3. Install the entry points: AGENTS.md, .claude/skills/agent-handoff/SKILL.md,
-    and the pointer line in CLAUDE.md.
- 4. Dry run: both agents acquire and release disjoint scopes, write and claim one
+    used. This is a gate, not a formality.
+ 2. Review PROTOCOL.md, AGENTS.md, and the generated agent entry points.
+ 3. Dry run: both agents acquire and release disjoint scopes, write and claim one
     handoff each, with no real edits. Confirm each sees the other's locks and notes.
- 5. Deliberately break one lock and confirm the incident record appears.
- 6. Only then use it for real work.
+ 4. Deliberately break one lock and confirm the incident record appears.
+ 5. Only then use it for real work.
 ```
 
 Step 5 is not optional. Breaking a lock is the operation most likely to be done wrong under
@@ -126,7 +150,7 @@ pressure, and the only way to trust the incident trail is to have seen it produc
 - `MA-15` **CLI** Status commands provide actionable info without requiring work.
 - `MA-16` **CLI** Configuration file, flags, and environment variables follow precedence.
 - `MA-17` **CLI** Daemon mode responds to SIGTERM with graceful shutdown.
-- `MA-18` **CLI** `init` command creates valid structure that passes `verify` command.
+- `MA-18` **CLI** `setup` command creates valid structure that passes `verify` command.
 
 ## Honest limits
 

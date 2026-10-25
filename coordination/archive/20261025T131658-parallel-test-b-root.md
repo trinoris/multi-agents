@@ -56,9 +56,9 @@ Update main `README.md` to add a "Quick Links" section at the top.
    
    - [Specifications](specs/) — 6 complete specs
    - [CLI Documentation](trinoris-agent/README.md) — Installation & usage
-   - [Phase 0 Summary](PHASE-0-COMPLETE.md) — CLI implementation
-   - [Phase 1 Summary](PHASE-1-STARTED.md) — First handoff validation
-   - [Implementation Plan](IMPLEMENTATION-PLAN.md) — Roadmap
+   - [Phase 0 Summary](../../docs/planning/PHASE-0-COMPLETE.md) — CLI implementation
+   - [Phase 1 Summary](../../docs/planning/PHASE-1-STARTED.md) — First handoff validation
+   - [Implementation Plan](../../docs/planning/IMPLEMENTATION-PLAN.md) — Roadmap
    ```
 
 3. **Sleep 10 seconds** (simulate longer work to ensure parallel execution)

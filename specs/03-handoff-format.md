@@ -23,14 +23,17 @@ message, and all of it is what the peer needs.
 
 ```text
 write     handoff/for-<peer>/<ISO8601>-<slug>.md     author releases locks first
-claim     mv → active/<same-name>.md                 atomic; no lock needed
+claim     mkdir claims/<note>.claim  (atomic)        then mv → active/, then rmdir
 finish    mv → archive/<same-name>.md                append ## Outcome
 ```
 
-`mv` to a non-existent target is the claim primitive. If both agents race to claim, one
-`mv` succeeds and the other finds no source file — no lock, no ambiguity. This is why
-claiming is a move rather than editing a `status:` field in place, which would be a
-read-then-write race.
+The claim is the **`mkdir`**, not the `mv`. `mkdir` is the only primitive verified atomic
+on this filesystem; `mv -n` is not — it is stat-then-rename and returns success when it
+declines, so two racing agents both conclude they claimed the note (measured: 2 claimers
+of 8 racers). See spec 02, "two primitives that looked right and were not".
+
+Claiming is still a move rather than editing a `status:` field in place, because an
+in-place edit is a read-then-write race with no atomic step at all.
 
 Rules:
 

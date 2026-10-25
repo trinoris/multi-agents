@@ -23,22 +23,27 @@ failing as expected · ✅ passing.
 
 ## Test cases
 
-| # | Expected today | Status | Asserts |
-| --- | --- | --- | --- |
-| `MA-T01` | UNKNOWN | ❌ | **Real concurrency.** N parallel processes on `/mnt/c` (v9fs) each attempt `mkdir` of the same lock; exactly one succeeds. Run with N=2, 8, 32, repeated. This is the assumption everything rests on and it is currently verified only sequentially |
-| `MA-T02` | RED (new) | ❌ | A lock whose `expires_at` is in the past by more than the grace period is reported breakable; one still inside grace is not |
-| `MA-T03` | RED (new) | ❌ | **Malformed lock.** A lock directory with no `holder.json`, mtime older than grace, is breakable. The same directory with a recent mtime is not |
-| `MA-T04` | RED (new) | ❌ | **Claim race.** Two processes `mv` the same handoff note to `active/`; exactly one succeeds and the other observes the source gone. No note is duplicated or lost |
-| `MA-T05` | RED (new) | ❌ | **The ABA case from spec 02.** Holder A's lease expires, B breaks and acquires, A then re-reads `holder.json` and correctly concludes it no longer holds the lock |
-| `MA-T06` | RED (new) | ❌ | Breaking a lock without writing an `incidents/` record is detectable after the fact: every lock that changed hands has a matching incident file |
-| `MA-T07` | RED (new) | ❌ | Acquiring two scopes out of registry order is rejected by the helper (if a helper exists) or flagged by the lint in `MA-T09` |
-| `MA-T08` | RED (new) | ❌ | A handoff note missing `## Verified` or `## Assumed / not verified` is rejected by a format check |
-| `MA-T09` | RED (new) | ❌ | Lint: every scope named in any `holder.json` exists in spec 01's registry; no `holder.json` references an unknown scope |
-| `MA-T10` | RED (new) | ❌ | **Cross-platform.** A lock created from Windows (PowerShell `New-Item -ItemType Directory`) is seen as held from WSL, and vice versa. Both read each other's `holder.json` as UTF-8/LF |
-| `MA-T11` | RED (new) | ❌ | A copied `PROTOCOL.md` in a consuming repo that has diverged from this repo's version is flagged (the copy-vs-symlink decision in spec 04) |
+Run 2026-10-25 on v9fs (`/mnt/c`). Harnesses to be extracted into `tests/` from the
+scratch versions used for this run.
 
-`MA-T01` and `MA-T10` are the two that justify this repo existing. Everything else tests
-rules; those two test the physics the rules assume.
+| # | Status | Result |
+| --- | --- | --- |
+| `MA-T01` | PASS | **Atomic.** N=2/8/32 x 100 trials, 4,200 racing processes barrier-synchronised on one lock: exactly one winner every trial, 0 failures. The gate is cleared |
+| `MA-T02` | PASS | Live lease not breakable; expired-within-grace not breakable; expired beyond grace breakable. **Caveat**: expiry falling exactly on the grace edge is decided by microseconds and two agents can disagree — handled by the break token, not by the comparison |
+| `MA-T03` | PASS | Malformed lock with fresh dir mtime not breakable; with mtime older than grace it is; unparseable `holder.json` behaves as malformed |
+| `MA-T04` | PASS **after a fix** | Originally **FAILED**: `mv -n` gave 2 claimers from 8 racers (21/100 trials; 31/100 at N=32). Fixed with an atomic `mkdir` claim marker before the `mv` — 0 failures at N=8 and N=32 over 100 trials. Hardlink also passed, rejected for Windows fragility |
+| `MA-T05` | PASS | ABA confirmed: after eviction the lock directory is indistinguishable from the original; the `agent` field in `holder.json` is the only thing revealing the loss. Re-verify detects it correctly |
+| `MA-T06` | not written | |
+| `MA-T07` | not written | |
+| `MA-T08` | not written | |
+| `MA-T09` | not written | |
+| `MA-T10` | PASS | **Both directions.** WSL-created lock blocks PowerShell `New-Item`; Windows-created lock blocks WSL `mkdir`; each side reads the other's `holder.json`. Automatable after all — see below |
+| `MA-T11` | not written | |
+| `MA-T12` | PASS **new** | **Break race.** Delete-then-recreate double-breaks: 25/60 failures at N=8, 59/60 at N=32. Rename-aside also double-breaks (2 takeovers at N=8) because the lock name frees instantly. Fixed with the `<scope>.breaking` token — 0 failures at N=8 and N=32 over 60 trials |
+
+`MA-T01`, `MA-T10` and `MA-T12` are the three that justify this repo existing. The rest
+test rules; those three test the physics the rules assume — and two of them disproved this
+spec as first written.
 
 ## Test approach
 
@@ -47,16 +52,16 @@ processes and two platforms, which cannot be mocked without testing the mock.
 
 ```text
 tests/
-├── concurrency/     N-process races: mkdir, claim-by-mv        (MA-T01, T04, T05)
-├── lifecycle/       lease expiry, malformed locks, incidents   (MA-T02, T03, T06)
+├── concurrency/     N-process races: mkdir, claim, lock-break   (MA-T01, T04, T12)
+├── lifecycle/       lease expiry, malformed locks, ABA          (MA-T02, T03, T05)
 ├── lint/            scope registry, handoff format, drift      (MA-T07..T09, T11)
-└── cross-platform/  WSL ↔ Windows, run manually                (MA-T10)
+└── cross-platform/  WSL <-> Windows via powershell.exe          (MA-T10)
 ```
 
-`MA-T10` cannot run unattended in a single environment — it needs a real shell on each
-side. It is a documented manual procedure with a recorded result and a date, not a CI job.
-Marking it automated would be a lie that matters, because the WSL↔Windows bridge is exactly
-where a silent assumption would hide.
+**Correction to an earlier claim in this spec.** `MA-T10` was described as impossible to
+automate in one environment. That was wrong: `powershell.exe` is reachable directly from
+WSL, so one harness drives both sides and the test runs unattended. It is a normal
+automated test, not a manual procedure.
 
 ## Adoption
 
@@ -92,6 +97,10 @@ pressure, and the only way to trust the incident trail is to have seen it produc
 - `MA-04` The dry run in adoption step 4 is completed and recorded before any real
   concurrent work.
 - `MA-05` No implementation lands before its test is written and failing.
+- `MA-06` The claim primitive is `mkdir`, never `mv -n`. `MA-T04` is the standing guard.
+- `MA-07` Breaking a lock always acquires `<scope>.breaking` first. `MA-T12` is the guard.
+  A break implementation that skips the token passes casual testing and fails under load,
+  which is the worst combination available.
 
 ## Honest limits
 

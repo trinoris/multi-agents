@@ -20,12 +20,13 @@ calls: there is no daemon, no held file descriptor, nothing the kernel can clean
 
 | Primitive | Exclusive on v9fs | Survives process exit | Verdict |
 | --- | --- | --- | --- |
-| `mkdir` | yes (measured) | yes | **chosen** |
+| `mkdir` | yes — **verified under real concurrency** | yes | **chosen** |
 | `>` with `noclobber` | yes (measured) | yes | viable; a directory holds metadata more naturally |
 | `ln -s` | yes (measured) | yes | viable; obscure, no metadata slot |
 | `flock` | unreliable over 9p | **no** — releases on exit | rejected |
 | `O_EXCL` open via a language runtime | yes | yes | equivalent to `noclobber`, adds a runtime dependency |
 | A lock *file* written non-atomically | no | yes | rejected — read-then-write is a race |
+| `mv -n` | **no** — verified: stat-then-rename, succeeds when it declines | yes | rejected; see below |
 
 `flock` is the trap worth naming: the binary exists on the WSL side, it is the textbook
 answer, and it is wrong twice over here. Advisory locks over the 9p bridge are not
@@ -129,6 +130,48 @@ Stated plainly so nobody relies on it for more than it does:
   finds.
 - **Clock skew.** Leases compare wall-clock timestamps and assume one machine. Splitting
   the agents across machines invalidates the lease mechanism entirely.
+- **The exact grace boundary.** Two agents evaluating "is this breakable?" microseconds
+  apart can legitimately disagree when expiry falls exactly on the grace edge. This is not
+  fixable by tightening the comparison; it is why breaking is gated behind the
+  `<scope>.breaking` token rather than decided independently by each agent.
+
+## Verified: two primitives that looked right and were not
+
+Both were in an earlier draft of this spec as safe. Testing them disproved both. They are
+recorded here because each is the obvious answer and will be proposed again.
+
+### `mv -n` is not an atomic claim
+
+`mv -n` (and `mv` with a prior existence check, which is the same thing) is implemented as
+**stat-then-rename in userspace**. When the target exists it returns **exit 0** without
+moving anything. Two racing agents therefore both succeed, both observe the source file
+gone — moved by the winner — and both conclude they claimed it.
+
+Measured on v9fs: **2 claimers from 8 racers, 21 failed trials in 100**. At 32 racers, 31
+in 100. The file was never lost or duplicated, which is what makes this dangerous: the
+tree looks correct and two agents are working the same note.
+
+Fix, verified clean at N=8 and N=32 over 100 trials: take an atomic `mkdir` claim marker
+first, then `mv`. A hardlink (`ln` then unlink source) also tested clean, but was rejected
+— hardlinks are fragile across the Windows boundary and leave the note momentarily
+present in two places.
+
+### Breaking a lock by delete-then-recreate double-breaks
+
+The sequence "judge stale → `rm -rf` the lock → `mkdir` it fresh" fails badly:
+**25 failed trials in 60 at N=8, 59 in 60 at N=32**, with two agents each believing they
+had taken over.
+
+Replacing the delete with an atomic rename-aside **does not fix it** — measured 2
+takeovers at N=8. The reason is subtle and worth stating: once the first breaker
+re-creates the lock, the name is occupied again, and a slightly later breaker's rename
+succeeds against the *new* holder's lock. Nothing in the name distinguishes a stale lock
+from a freshly acquired one.
+
+Fix, verified clean at N=8 and N=32 over 60 trials: breaking requires first acquiring
+`locks/<scope>.breaking` by `mkdir`. That serialises the break with the one primitive
+already proven atomic, and a losing breaker stands down without touching the lock. The
+re-verify-after-acquire step then catches anything that still slips through.
 
 ## Open questions
 
@@ -136,5 +179,5 @@ Stated plainly so nobody relies on it for more than it does:
   (branch, rebase, reset)? One coarse scope is safer but serialises all commits. Decide
   after observing real contention, not before.
 - `(pending)` Is 15/5/5 right? Needs measurement against real tool-call durations.
-- `(not verified)` Whether `mkdir` remains atomic under genuine concurrent load on v9fs.
-  Measured exclusivity sequentially only; `MA-T01` in spec 05 is the real test.
+- **Resolved** — `mkdir` atomicity under genuine concurrent load on v9fs: **verified**,
+  4,200 racing processes (N=2/8/32 × 100 trials), exactly one winner every trial.

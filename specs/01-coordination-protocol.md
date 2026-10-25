@@ -42,6 +42,9 @@ Measured in this working tree on 2026-10-25. Re-verify if the setup changes.
 | `>` with `noclobber` | fails on existing file — usable |
 | `ln -s` on existing name | fails — usable |
 | `flock` | binary exists, **must not be used** |
+| `mkdir` under real concurrency | atomic — verified, 4,200 racing processes (N=2/8/32 × 100 trials), exactly one winner every trial |
+| `mv -n` as an atomic claim | **not atomic** — it is stat-then-rename in userspace and returns success when it declines. Verified: 2 claimers out of 8 racers |
+| WSL ↔ Windows lock visibility | works both directions, `holder.json` readable both ways — verified via `powershell.exe` |
 
 **Do not use `flock`.** Advisory locking over 9p is unreliable, and `flock` releases on
 process exit — which is wrong for agents that work in discrete tool calls rather than
@@ -69,7 +72,9 @@ coordination/
 ├── PROTOCOL.md              this file
 ├── TEMPLATE-handoff.md      copy this to write a handoff (format: spec 03)
 ├── locks/<scope>.lock/      a lock. Directory presence = held
-│   └── holder.json          who holds it, and until when
+│   ├── holder.json          who holds it, and until when
+│   └── (locks/<scope>.breaking/ — transient: the right to break this lock)
+├── claims/<note>.claim/     transient: the right to claim a handoff note
 ├── handoff/
 │   ├── for-claude/          notes addressed to claude
 │   └── for-codex/           notes addressed to codex
@@ -165,21 +170,33 @@ Read the peer's `holder.json`:
 - **Lease still valid** → do not wait or spin. Pick different work in another scope, or
   write a handoff note into `handoff/for-<peer>/` and stop. Blocking on a lock wastes a
   whole agent.
-- **`expires_at` in the past by more than the 5-minute grace** → you may break it.
+- **`expires_at` in the past by more than the 5-minute grace** → you may break it, via the
+  break-token sequence below. Never decide this and act on it in one step: at the exact
+  grace boundary two agents disagree by microseconds, and the token is what stops both
+  acting on their own answer.
 - **`holder.json` missing or unparseable** → the lock is malformed; the acquirer died
   between creating the directory and writing its metadata. You may break it once the
   **lock directory's own mtime** is older than the grace period.
 
 ### Breaking a lock
 
-Breaking is permitted and sometimes necessary. Doing it silently is not.
+Breaking is permitted and sometimes necessary. Doing it silently is not — and it must be
+serialised, or two agents break the same lock and the second one evicts the first.
 
-1. Write `coordination/incidents/<ISO8601>-broken-<scope>.md` recording: who you are, the
+1. `mkdir coordination/locks/<scope>.breaking` — **the atomic right to break.** If this
+   fails, another agent is already breaking this scope: stand down entirely, do not touch
+   the lock.
+2. Re-check that the lock is still stale. The holder may have renewed while you were
+   acquiring the token.
+3. Write `coordination/incidents/<ISO8601>-broken-<scope>.md` recording: who you are, the
    scope, the holder you evicted, that holder's `acquired_at`/`expires_at`, why you judged
    it dead, and what you intend to do next.
-2. Delete the lock directory.
-3. Acquire it fresh, your own `holder.json`.
-4. **Assume the evicted agent left the tree mid-edit.** Run `git status` and the relevant
+4. `mv` the stale lock directory to `incidents/<ISO8601>-<scope>.stale` — move it aside
+   rather than deleting it, so the evicted holder's metadata survives as evidence.
+5. `mkdir` the lock fresh and write your own `holder.json`.
+6. Re-read `holder.json` and confirm it is yours. If it is not, you lost: stand down.
+7. `rmdir coordination/locks/<scope>.breaking`.
+8. **Assume the evicted agent left the tree mid-edit.** Run `git status` and the relevant
    tests before building on what you find. A broken lock means the work in that scope is of
    unknown quality, not that it is absent.
 
@@ -195,10 +212,21 @@ Release your locks **before** writing the note, so the peer can act on it immedi
 
 ### Claiming one
 
-Claiming is a `mv` of the file from `handoff/for-<you>/` into `coordination/active/`. A
-`mv` to a path that does not exist is the atomic claim — if two agents race, one `mv`
-succeeds and the other finds the file gone. **No lock is needed to claim**, and an agent
-must never edit a note sitting in the peer's `for-<peer>/` directory.
+Claiming is **two steps**, because `mv` is not an atomic claim:
+
+1. `mkdir coordination/claims/<note-filename>.claim` — this is the atomic step. Failure
+   means another agent is claiming it; stand down.
+2. `mv coordination/handoff/for-<you>/<note> coordination/active/<note>`, then
+   `rmdir` the claim directory.
+
+**Do not use `mv -n` as the claim.** Verified: `mv -n` is implemented as stat-then-rename
+in userspace, so when the target already exists it returns **success** without moving.
+Two agents racing both get exit 0, both see the source gone, and both conclude they
+claimed the note — measured at 2 claimers out of 8 racers, 21 failures in 100 trials.
+`mkdir` is the only claim primitive verified atomic here.
+
+No scope lock is needed to claim. An agent must never edit a note sitting in the peer's
+`for-<peer>/` directory.
 
 ### Finishing one
 
@@ -238,7 +266,9 @@ break a live one.
 2. Never edit a path outside a scope you hold.
 3. Acquire multiple scopes in registry order, always.
 4. Re-verify you hold the lock immediately before writing.
-5. Never break a lock without an incident record.
+5. Never break a lock without holding `<scope>.breaking` **and** writing an incident
+   record. Breaking without the token is the one violation that silently destroys the
+   peer's freshly acquired lock.
 6. Never switch branches, rebase or reset while the peer holds any lock.
 7. Never force-push, and never rewrite a commit you did not create.
 8. Never edit a note in the peer's `for-<peer>/` directory, and never edit a note in

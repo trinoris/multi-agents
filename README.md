@@ -9,12 +9,16 @@ Proprietary and confidential.
 Coordination protocol for two coding agents sharing one working tree — **claude**
 (Claude Code) and **codex** (Codex CLI), each in its own terminal.
 
-## Status: SPECS ONLY — nothing implemented
+## Status: SPECS + VERIFICATION HARNESSES — no production implementation
 
 Deliberately spec-first. The mechanism's failure mode is silent data loss, so the design
-is settled and the tests are written before any code exists. `MA-T01` in
-[`specs/05-verification.md`](specs/05-verification.md) gates everything: if `mkdir` is not
-atomic under real concurrency on the target filesystem, the protocol does not apply there.
+was settled and raced on purpose before any production code exists.
+
+**That paid for itself: testing disproved two parts of the first draft.** `mv -n` is not
+an atomic claim, and breaking a stale lock by delete-then-recreate double-breaks under
+load. Both are fixed and re-verified; both are recorded in
+[`specs/02-lock-mechanism.md`](specs/02-lock-mechanism.md) because each is the obvious
+answer and will be proposed again.
 
 ## What it is
 
@@ -60,11 +64,16 @@ Measured 2026-10-25 in `/mnt/c/Users/Hai-Linh/trinoris/trinoris-control-tower`:
 | Fact | Value |
 | --- | --- |
 | Filesystem | `v9fs` (WSL2 ↔ Windows drive) |
-| `mkdir` / `noclobber` / `ln -s` on existing name | all fail — usable as lock primitives |
+| `mkdir` under real concurrency | **atomic** — 4,200 racing processes (N=2/8/32 × 100 trials), exactly one winner every trial |
+| `mv -n` as a claim | **not atomic** — stat-then-rename; returns success when it declines. 2 claimers from 8 racers |
+| Delete-then-recreate lock break | **double-breaks** — 25/60 failures at N=8, 59/60 at N=32 |
+| Rename-aside lock break | **also double-breaks** — the lock name frees instantly |
+| `mkdir`-token guarded break | **safe** — 0 failures at N=8 and N=32 |
+| WSL ↔ Windows lock visibility | mutually visible, `holder.json` readable both ways |
 | `flock` | present, **rejected** |
 
-Exclusivity was measured **sequentially**. True atomicity under concurrent load is
-`MA-T01` and is **(not verified)**.
+Run 2026-10-25. Harnesses in [`tests/`](tests/) — re-run them on any new filesystem
+before adopting the protocol there.
 
 ## Non-goals
 

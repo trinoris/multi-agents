@@ -20,26 +20,43 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 DRY=""
-[ "${1:-}" = "--dry-run" ] && DRY="--dry-run"
+OTP=""
+for a in "$@"; do
+  case "$a" in
+    --dry-run) DRY="--dry-run" ;;
+    --otp=*)   OTP="--otp=${a#--otp=}" ;;
+    *) echo "unknown argument: $a"; echo "usage: $0 [--dry-run] [--otp=123456]"; exit 1 ;;
+  esac
+done
 
 command -v pnpm >/dev/null || { echo "pnpm is required (npm would ship workspace:* unresolved)"; exit 1; }
 
 if [ -z "$DRY" ]; then
   npm whoami >/dev/null 2>&1 || {
-    echo "Not logged in to npm. Run:  npm login --scope=@trinoris"
+    echo "Not logged in to npm. Either:"
+    echo "  npm login --scope=@trinoris          # interactive, then re-run with --otp"
+    echo "  or put an Automation token in .env   # NPM_REGISTRY_TOKEN=, bypasses 2FA"
     exit 1
   }
+  if [ -z "$OTP" ]; then
+    echo "note: no --otp given. If 2FA is enforced this stops at EOTP on the first package."
+  fi
   echo "Publishing as: $(npm whoami)"
   ACCESS=$(node -e "console.log(require('./packages/core/package.json').publishConfig.access)")
   echo "Access: $ACCESS"
-  if [ "$ACCESS" = "public" ]; then
+  LIC=$(node -e "console.log(require('./packages/core/package.json').license)")
+  echo "License: $LIC"
+  if [ "$ACCESS" = "public" ] && [ "$LIC" = "UNLICENSED" ]; then
+    # Only a contradiction is worth blocking on: public + no licence grant means the
+    # packages are downloadable by everyone and lawfully usable by none.
     echo
-    echo "WARNING: access is 'public'. These packages are marked UNLICENSED and the source"
-    echo "headers say 'Proprietary and confidential'. A public publish makes the compiled"
-    echo "output world-readable and downloadable by anyone, permanently."
-    read -r -p "Type PUBLIC to confirm: " c
-    [ "$c" = "PUBLIC" ] || { echo "aborted"; exit 1; }
+    echo "REFUSING: access=public with license=UNLICENSED grants no rights to anyone."
+    echo "Set a real licence (Apache-2.0) or publish with access=restricted."
+    exit 1
   fi
+  echo
+  echo "This is permanent: a published version cannot be reused, and unpublish is"
+  echo "limited to a 72-hour window."
 fi
 
 echo "Building..."
@@ -50,7 +67,8 @@ pnpm --filter @trinoris/agent-cli  build >/dev/null
 # Dependency order: core <- sdk <- cli
 for pkg in agent-core agent-sdk agent-cli; do
   echo "--- $pkg"
-  pnpm --filter "@trinoris/$pkg" publish $DRY --no-git-checks
+  # shellcheck disable=SC2086
+  pnpm --filter "@trinoris/$pkg" publish $DRY $OTP --no-git-checks
 done
 
 echo

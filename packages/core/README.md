@@ -117,4 +117,7 @@ const ordered = sortScopesByRegistry(scopes, DEFAULT_SCOPE_REGISTRY);
 
 ## License
 
-© 2026 TRINORIS. All rights reserved. Proprietary and confidential.
+## License
+
+`UNLICENSED` — published publicly for use with the Trinoris
+coordination protocol. All rights reserved; see LICENSE.

@@ -107,6 +107,24 @@ coordination/
     └── claude-opus-5-x9k2.json
 ```
 
+## What is version-controlled
+
+`coordination/` is split, not ignored wholesale:
+
+| Path | Tracked? | Why |
+| --- | --- | --- |
+| `archive/` | **yes** | The record of who did what and why. Spec 03 calls it the project's memory |
+| `incidents/*.md` | **yes** | Audit trail for every lock that changed hands |
+| `locks/`, `claims/`, `heartbeat/`, `active/` | no | Ephemeral runtime state |
+| `handoff/**/*.md` | no | In-flight messages, local to one working tree |
+| `incidents/*.stale/` | no | Raw evidence dirs; the `.md` record is what matters |
+
+**A committed lock is a phantom lock.** On a fresh clone `locks/engine.lock` would exist,
+held by an agent that is not running. If it was committed inside its 15-minute lease, the
+protocol forbids breaking it — so the scope is blocked on every clone, for no reason and
+with no live holder to ask. Inbox directories are kept (via `.gitkeep`) so an agent can
+work in a fresh clone without running `setup` first.
+
 ## Scopes
 
 Locks are taken on **names from this fixed registry**, never on arbitrary paths or globs.

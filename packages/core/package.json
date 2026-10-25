@@ -45,6 +45,6 @@
   "license": "UNLICENSED",
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
-    "access": "restricted"
+    "access": "public"
   }
 }

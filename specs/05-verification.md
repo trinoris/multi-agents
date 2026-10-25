@@ -6,6 +6,20 @@ Proprietary and confidential.
 
 # 05 — Verification and adoption
 
+## Protocol 3 implementation notice
+
+The historical analysis below describes the original protocol and proposed tool behavior.
+The shipped `0.2.0` implementation uses protocol 3 and the versioned package-owned contract in
+`packages/core/src/protocol.ts`; setup installs its exact bytes and verify checks its digest
+under `.trinoris/`.
+[Security hardening](07-security-hardening.md) maps current behavior to regression tests.
+All mutations now share one guard; lease commands require a generation, claims validate
+recipients and use per-instance destinations, and heartbeat/daemon operation is explicitly
+unsupported. Git mutations use the conservative mutually exclusive `git` scope. Historical
+MA-T results remain evidence of their recorded runs, not proof of the current SDK or a new
+filesystem. Keep stable MA-T IDs when adding current regressions.
+
+
 ## Status: IN PROGRESS — CLI verifier implemented; protocol tests remain tracked below
 
 ## Development philosophy: TDD
@@ -104,7 +118,7 @@ Per working tree, scaffold once, verify the target tree, then allow agents to co
 passes.
 
 ```text
- 0. Run `trinoris-agent setup` to create coordination/ and the agent instruction pointers.
+ 0. Run `trinoris-agent setup` to create .trinoris/ and the agent instruction pointers.
  1. MA-T01 passes on the target filesystem. If mkdir is not atomic under real
     concurrency there, the protocol does not apply to that tree and must not be
     used. This is a gate, not a formality.

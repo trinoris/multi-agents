@@ -1,6 +1,6 @@
 {
   "name": "@trinoris/agent-sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Programmatic coordination API \u2014 scope locks, handoff claims, stale-lock recovery",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -47,5 +47,8 @@
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
     "access": "public"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

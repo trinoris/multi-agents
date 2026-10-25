@@ -30,7 +30,7 @@ Apache-2.0. That includes, without limitation:
   specs/        the coordination protocol specification
   docs/         architecture decision records
   tests/        the verification suite
-  coordination/ operational records
+  .trinoris/ operational records
 
 No licence is granted to use, copy, modify or distribute these materials.
 

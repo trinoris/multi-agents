@@ -6,6 +6,20 @@ Proprietary and confidential.
 
 # 03 — Handoff format and lifecycle
 
+## Protocol 3 implementation notice
+
+The historical analysis below describes the original protocol and proposed tool behavior.
+The shipped `0.2.0` implementation uses protocol 3 and the versioned package-owned contract in
+`packages/core/src/protocol.ts`; setup installs its exact bytes and verify checks its digest
+under `.trinoris/`.
+[Security hardening](07-security-hardening.md) maps current behavior to regression tests.
+All mutations now share one guard; lease commands require a generation, claims validate
+recipients and use per-instance destinations, and heartbeat/daemon operation is explicitly
+unsupported. Git mutations use the conservative mutually exclusive `git` scope. Historical
+MA-T results remain evidence of their recorded runs, not proof of the current SDK or a new
+filesystem. Keep stable MA-T IDs when adding current regressions.
+
+
 ## Status: PROPOSED
 
 The lock mechanism keeps two agents from colliding. The handoff is what makes them

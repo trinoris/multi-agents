@@ -7,10 +7,14 @@
  * Scope lock holder information
  */
 export interface Lock {
+  /** Missing only on legacy read-only records; never sufficient to authorize mutation. */
+  schema_version?: 2;
+  generation?: string;
   agent_instance: string;
   agent_class: string;
   scope: string;
   acquired_at: string; // ISO 8601
+  renewed_at?: string; // most recent renewal; lease bound is relative to this instant
   expires_at: string;  // ISO 8601
   task?: string;
 }

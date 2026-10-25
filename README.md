@@ -38,7 +38,7 @@ Agent A                         Agent B
                   |
           shared repository
                   |
-       coordination/ records
+       .trinoris/ records
        ├── locks/       scope ownership and leases
        ├── handoff/     work passed between agents
        └── incidents/  guarded recovery history
@@ -83,17 +83,18 @@ release test toolchain requires Node.js 20 or later.
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm --filter @trinoris/agent-cli build
+pnpm build
 
-# Initialize coordination files in the repository agents will share.
+# Initialize agent coordination in the repository they will share.
 node packages/cli/dist/bin.js setup --work-dir /path/to/repository
 
 # Verify the target filesystem before agents rely on scope locks.
 node packages/cli/dist/bin.js verify --work-dir /path/to/repository
 ```
 
-Review the generated `AGENTS.md` and `PROTOCOL.md`, then have every participating agent
-use the same coordination directory and follow that protocol. Do not rely on locks unless
+Review the generated `AGENTS.md` and `.trinoris/PROTOCOL.md`, then have every participating
+agent use the same `.trinoris/` directory and follow that protocol. Setup adds the directory
+to `.gitignore`. Do not rely on locks unless
 verification passes for the checkout and filesystem configuration they will use.
 
 Once the CLI package is published, install it globally with:

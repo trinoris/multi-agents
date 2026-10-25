@@ -10,3 +10,5 @@
  */
 
 export * from './lock.js';
+export * from './configuration.js';
+export * from './filesystem.js';

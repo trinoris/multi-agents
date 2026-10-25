@@ -62,6 +62,7 @@ ENV/
 env/
 
 # Coordination protocol (runtime state - don't commit)
+/.trinoris/
 coordination/locks/*
 coordination/claims/*
 coordination/active/*
@@ -101,3 +102,6 @@ coordination/handoff/**/*.md
 # Raw evidence from broken locks (moved-aside lock dirs). The incident .md
 # records ARE kept — they are the audit trail.
 coordination/incidents/*.stale/
+
+# Reviewed release tarballs and audit/test evidence (never credentials)
+.release-artifacts/

@@ -1,315 +1,220 @@
 # `@trinoris/agent-cli` user guide
 
-`trinoris-agent` coordinates coding agents that edit the **same working tree**. It gives
-each agent a stable identity, lets agents reserve named areas of work, shows who holds
-those reservations, and lets an agent claim a handoff note without two agents claiming it
-at once.
+`trinoris-agent` coordinates cooperating coding agents in one working tree. It reserves
+registered scopes, validates handoff recipients, and records takeover attempts and outcomes.
+It does not authenticate agents, sandbox editors, or prevent direct uncoordinated writes.
 
-Use it when multiple agents may write to one checkout. It does not coordinate separate
-clones or separate branches, and it does not prevent an agent from ignoring the protocol.
-All participating agents must use the same `coordination/` directory and follow
-`PROTOCOL.md`.
-
-## How the CLI fits together
+## Architecture
 
 ```text
- Coding agent A                         Coding agent B
- (Codex, Claude, Kiro, ...)            (Codex, Claude, Kiro, ...)
-        |                                      |
-        | trinoris-agent acquire/check/...     | trinoris-agent status/claim/...
-        +------------------+-------------------+
-                           |
-                    @trinoris/agent-cli
-               parses command, identity, config
-                           |
-                    @trinoris/agent-sdk
-          lock / renew / release / claim / break
-                           |
-               shared repository filesystem
-                           |
-          +----------------+----------------+
-          |                |                |
-   coordination/locks  coordination/     coordination/
-   <scope>.lock        handoff/...       incidents/...
-   holder.json         *.claim marker    break records
-                      active/ notes
-
- `verify` takes a separate path:
- CLI -> start N child processes -> workers wait for release barrier
-    -> each mkdirs the same unique lock path -> parent checks 1 winner
-    -> repeat for each trial -> ATOMIC / NOT ATOMIC / PROBE FAILED
+ Agent session A                 Agent session B
+ stable instance + generation    stable instance + generation
+          |                               |
+          +--------- trinoris-agent ------+
+                          |
+                     agent-sdk
+                          |
+        atomic mkdir: .trinoris/.mutation
+                          |
+          +---------------+---------------+
+          |               |               |
+    locks/<scope>/   handoff -> active/   incidents/
+    holder.json      <instance>/         attempted/completed/failed
+    generation       note + receipt      preserved stale state
+                          |
+                agent-core validation
+                package-owned protocol
 ```
 
-The filesystem is the coordination service: every participant sees the same lock and
-handoff records. The CLI and SDK do not send messages to agents, schedule work, or keep a
-central server. Agents communicate through handoff files and coordinate ownership through
-the shared directory.
+Every mutation uses the same short filesystem guard, including Git policy checks and
+handoff moves. A busy guard returns contention; agents must choose other work, not spin.
+The guard is never stolen because of its age or a PID. A stopped actor may leave it behind;
+explicit operator recovery preserves the reason and operation identity.
 
-## Best-fit use scenarios
+## Best uses and boundaries
 
-- **Parallel work in one checkout:** one agent owns `api`, another owns `webapp`; both can
-  read the whole tree, but each reserves the files it plans to change.
-- **Several agents working on the same subsystem:** agree on a single shared scope such as
-  `engine`; only one agent edits that subsystem at a time, while others work on disjoint
-  scopes or prepare handoffs.
-- **A task changes owners:** the current agent writes a handoff note into the next agent's
-  inbox. The receiver claims it with `trinoris-agent claim`, then acquires the needed
-  scope before editing.
-- **Long-running work:** the owner renews the lease and checks ownership before each batch
-  of writes. If the owner disappears, a peer checks status and uses the guarded `break`
-  command only after the lease and grace period expire.
-- **Onboarding a repository or changing its mount:** run `setup` once, then `verify` on the
-  actual shared checkout before agents start relying on locks.
+- Coordinate several agents editing different scopes in the same checkout.
+- Pass verified context and next steps through addressed handoff notes.
+- Inspect interrupted work before a safe takeover.
+- Verify the actual filesystem after onboarding a checkout or changing a mount.
 
-This CLI fits teams sharing one working tree on a filesystem where the verifier confirms
-atomic directory creation. Use branch isolation or a hosted coordination service when
-agents work in separate clones, need remote notifications, require enforced access control,
-or need a system to stop non-cooperating writers. A lock is a coordination agreement; it
-does not enforce filesystem permissions.
+Use isolated working trees or an enforcing service for hostile actors, multiple machines,
+or strict write exclusion. A process can pause between checking a lease and making its edit;
+the CLI cannot fence that edit. Cloned coordination directories do not coordinate clones.
 
-## Limitations
+## Install and adopt
 
-- **Cooperative protocol:** locks are advisory. The CLI cannot stop an agent, editor, or
-  script from changing files without acquiring the relevant scope.
-- **Shared checkout only:** agents must see the same working tree and `coordination/`
-  directory. Identical copies in separate clones do not coordinate with each other.
-- **Filesystem-specific guarantee:** `verify` exercises directory creation from the
-  current environment and target tree. Its result does not certify another mount, host,
-  container, or filesystem configuration. Rerun it when those change.
-- **Sandbox restrictions:** if a sandbox blocks child processes or filesystem inspection,
-  the result is inconclusive. `PROBE FAILED` and `filesystem unknown` are not proof of
-  non-atomic behavior; rerun with the required permissions against the same tree.
-- **No agent orchestration:** the CLI does not launch agents, assign tasks, deliver live
-  notifications, or negotiate ownership. Agents use handoff files and check status
-  themselves.
-- **Scopes require team discipline:** the CLI checks scope names against the registry but
-  does not map files to scopes or detect overlapping ownership. Agree on scope boundaries
-  and acquire every scope needed for a change.
-- **Leases are not health checks:** an expired lease does not prove its owner has stopped.
-  Check with the owner when possible; use `break` only after confirming the lock is stale,
-  and inspect the working tree after a takeover.
-- **Identity must persist for lock operations:** generated instance IDs change per command.
-  Reuse the same explicit `--instance` value for acquire, check, renew, and release.
-
-## Install and start
-
-The CLI requires Node.js 18 or later. From this monorepo:
+Published consumer packages declare Node.js 18+. The repository build/test toolchain
+requires Node.js 20+. From source, build workspace dependencies before running the CLI:
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
 pnpm build
-node packages/cli/dist/bin.js --help
+node packages/cli/dist/bin.js setup --work-dir /path/to/repository
+node packages/cli/dist/bin.js verify --work-dir /path/to/repository --trials 5 --concurrency 4
 ```
 
-After publishing, install the CLI globally and use `trinoris-agent` in place of
-`node packages/cli/dist/bin.js` below:
+Setup installs a complete package-owned protocol and digest. It retains existing regular
+files unless `--force` is explicit, refuses links/special files, and reports replacements.
+It never copies instructions from an arbitrary target repository's `specs/` directory.
+Review generated `.trinoris/PROTOCOL.md`, `AGENTS.md`, and the skill pointer before allowing agents
+into the working tree. Force setup refuses retained locks; stop actors and resolve them first.
+
+`verify --json` reports `structureOk`, `configOk`, `protocolOk`, `gitignoreOk`, `atomicityOk`, and `ready`.
+Only `ready: true` passes adoption. Missing/divergent protocols block readiness independently
+of mkdir results. Sandbox restrictions are inconclusive (`atomicityOk: null`), not proof
+that mkdir is non-atomic. Repeat on the same filesystem with worker permission.
+
+## Lease lifecycle
+
+Use a stable explicit instance for the session. Acquire returns a new **generation**;
+retain it and pass it to every subsequent lease operation. Do not read the current holder
+and adopt someone else's generation as a replacement for the one returned to you.
 
 ```bash
-npm install --global @trinoris/agent-cli
+trinoris-agent acquire --work-dir /repo --agent-class codex-gpt-6 \
+  --instance codex-session-a --scope api --task 'Validate requests' --json
+
+# Copy the generation from the acquisition response.
+trinoris-agent check --work-dir /repo --instance codex-session-a \
+  --scope api --generation <generation>
+trinoris-agent renew --work-dir /repo --instance codex-session-a \
+  --scope api --generation <generation>
+trinoris-agent release --work-dir /repo --instance codex-session-a \
+  --scope api --generation <generation>
 ```
 
-Run setup once from the repository you want agents to share:
+Check immediately before each batch of edits. A lease is live at the exact expiry instant;
+afterwards checks and renewal fail. Grace delays takeover and does not authorize continued
+editing. Release can safely remove an expired lease only with its matching generation.
+An identity string alone never authorizes check/renew/release in protocol 3.
 
-```bash
-trinoris-agent setup --work-dir /path/to/repository
-trinoris-agent verify --work-dir /path/to/repository
-```
-
-`setup` creates `coordination/`, a scope registry in `.kiro/coordination.json`, and thin
-agent instruction files. It does not start agents or acquire locks. Read the generated
-`AGENTS.md` and `PROTOCOL.md`, then run `verify`. Do not let agents rely on the locking
-protocol until verification passes.
-
-To customize the initial scope names and agent classes:
-
-```bash
-trinoris-agent setup \
-  --work-dir /path/to/repository \
-  --agent-classes codex-gpt-6,claude-opus-5 \
-  --scopes api,webapp,tests,git
-```
-
-`setup --force` rewrites generated configuration and instruction files. Use it only when
-you intend to replace local edits to those generated files.
-
-## Identify each agent consistently
-
-Pass the same `--agent-class` and `--instance` values to every command issued by one agent
-session. The instance is the lock owner; a new instance cannot renew or release another
-instance's lock.
-
-```bash
-trinoris-agent status \
-  --work-dir /path/to/repository \
-  --agent-class codex-gpt-6 \
-  --instance codex-session-a
-```
-
-`--agent-class` defaults to `claude`. If `--instance` is omitted, the CLI generates a new
-ID for that invocation. That is convenient for one-off status checks, but unsuitable for
-acquire/check/renew/release sequences. Choose a stable session ID and repeat it, or save
-these options in a shell alias or wrapper.
-
-Every command defaults `--work-dir` to the current directory. Set it explicitly if the
-shell is not running at the repository root.
-
-## Daily workflow: reserve work before editing
-
-Scopes are shared names for areas such as `api`, `webapp`, or `tests`. The default registry
-also includes `engine`, `agents`, `infra`, `specs`, `root`, and `git`. Choose the smallest
-scope that covers the files you intend to change. If the repository has a custom registry,
-the CLI rejects unregistered scopes.
-
-Acquire a scope before editing:
-
-```bash
-trinoris-agent acquire \
-  --work-dir /path/to/repository \
-  --agent-class codex-gpt-6 \
-  --instance codex-session-a \
-  --scope api \
-  --task "Add request validation"
-```
-
-Before each batch of writes, confirm the same instance still owns the lock:
-
-```bash
-trinoris-agent check \
-  --work-dir /path/to/repository \
-  --agent-class codex-gpt-6 \
-  --instance codex-session-a \
-  --scope api
-```
-
-For work that may outlast the configured lease, renew periodically. Release the scope as
-soon as the work is complete or you stop working:
-
-```bash
-trinoris-agent renew  --work-dir /path/to/repository --instance codex-session-a --scope api
-trinoris-agent release --work-dir /path/to/repository --instance codex-session-a --scope api
-```
-
-Keep the same `--agent-class` as well when running these commands. The default lease is 15
-minutes and the default grace period for stale-lock recovery is 5 minutes; both are read
-from `.kiro/coordination.json`.
-
-### If a scope is already held
-
-`acquire` exits with code `3` and names the current holder when it can read the holder
-record. Do not loop or retry repeatedly. Pick work covered by another free scope, or write
-a handoff for the current holder.
-
-Check the current locks with:
-
-```bash
-trinoris-agent status --work-dir /path/to/repository
-trinoris-agent status --work-dir /path/to/repository --scope api
-```
-
-With no `--scope`, `status` lists every lock directory. It reports `HELD`, `EXPIRED`, or
-`MALFORMED` state and whether a lock is eligible for recovery.
+Registry order governs acquisition. `acquire-many --scopes api,tests --instance SESSION`
+sorts by that order and rolls back its new leases if any scope is contended. Acquiring a
+lower scope while holding a higher one fails. The conservative `git` scope covers all Git
+mutations: peer editing leases block it, and a peer Git lease blocks new editing leases.
+Actual Git commands still require the agents to follow the protocol.
 
 ## Handoffs
 
-Write a handoff note in `coordination/handoff/for-<agent-class>/` using the repository's
-handoff format. The receiving agent claims it by filename:
+Release the author's scopes, then publish a uniquely named `.md` note under
+`.trinoris/handoff/for-<class>/` (or `for-any/` for an explicitly universal note).
 
-```bash
-trinoris-agent claim \
-  --work-dir /path/to/repository \
-  --agent-class codex-gpt-6 \
-  --instance codex-session-a \
-  --note implement-validation.md
+```markdown
+---
+from_class: claude-opus-5
+from_instance: claude-session-b
+to_class: codex-gpt-6
+to_instance: any
+scopes: api,tests
+status: ready
+created: 2026-10-25T10:00:00.000Z
+---
+
+# Validate requests
+
+## Context
+
+Requests need stricter validation.
+
+## Task
+
+Add the boundary checks.
+
+## What I Verified
+
+- Existing tests cover valid requests.
+
+## What I Assumed
+
+- The public schema stays compatible.
 ```
 
-By default, `claim` looks in `coordination/handoff/for-codex-gpt-6/` and moves a successful
-claim into `coordination/active/`. To use another source or destination directory, pass
-`--from` and `--to` as paths relative to `coordination/`:
-
 ```bash
-trinoris-agent claim --note implement-validation.md \
-  --from handoff/for-claude-opus-5 --to active
+trinoris-agent claim --work-dir /repo --agent-class codex-gpt-6 \
+  --instance codex-session-a --note validate-requests.md --json
 ```
 
-The CLI claims by creating an atomic marker before moving the note. If another agent has
-already claimed it, the command exits `3`; do not claim the note by moving it manually.
+The SDK validates recipient class/instance, status, schema, registered scopes, and scope
+availability. `any` is supported only when explicit. Duplicate or unknown frontmatter,
+invalid dates, and incomplete sections fail validation. Claim does not acquire editing
+scopes; acquire those separately before writing.
 
-## Recover a stale lock
+The destination is `active/<instance>/<filename>`. Existing active content is preserved
+on conflict. A digest/claimant receipt identifies an identical retry and permits recovery
+of an interrupted matching move. `--from` accepts a logical class inbox; `--to` must equal
+the claimant's instance directory. Unrestricted filesystem paths and shared `active/`
+destinations are no longer accepted.
 
-Only break a lock after checking with its owner or establishing that the owner is gone and
-the lock is stale. The grace period protects an agent that is slow or temporarily
-disconnected. Supply a reason so the takeover is recorded:
-
-```bash
-trinoris-agent break \
-  --work-dir /path/to/repository \
-  --agent-class claude-opus-5 \
-  --instance claude-recovery-a \
-  --scope api \
-  --reason "Owner confirmed terminated; lease and grace period expired"
-```
-
-Breaking a lock records an incident and preserves the stale lock metadata. After a
-successful break, inspect `git status` and run the relevant checks before continuing. Do
-not remove lock directories by hand.
-
-## Verify the filesystem gate
-
-The verifier runs real child processes that race to create one directory. Defaults are 50
-trials with 8 workers per trial:
+## Takeover and operator recovery
 
 ```bash
-trinoris-agent verify --work-dir /path/to/repository
-trinoris-agent verify --work-dir /path/to/repository --trials 100 --concurrency 8
+trinoris-agent break --work-dir /repo --agent-class claude-opus-5 \
+  --instance recovery-session --scope api --reason 'Prior actor confirmed stopped' --json
+trinoris-agent diagnose --work-dir /repo --json
 ```
 
-`--trials` must be a positive integer. `--concurrency` must be an integer of at least 2;
-one worker cannot test a race.
+A break requires expiry plus grace (or a malformed directory older than grace). It
+serializes against every other mutation, preserves stale state, and returns a new generation.
+Structured incident events say `attempted`, `completed`, or `failed`; an attempt alone is
+never evidence of successful takeover. Acquisition surfaces recent scope incidents.
+Inspect those events, `git status`, and relevant tests before editing interrupted work.
+Reasons are assertions, not proof the old process stopped. Local records remain writable
+by the same filesystem principals; they are not independently authenticated audit evidence.
 
-The result has three meanings:
+If a process crashes with a marker, stop **all affected actors**, inspect the marker and
+operation ID, then recover explicitly:
 
-- **ATOMIC** — all trials completed normally and exactly one worker won each race.
-- **NOT ATOMIC** — workers completed normally, but a trial had zero or multiple winners.
-  Do not install or use the protocol in that working tree.
-- **NOT CHECKED / PROBE FAILED** — workers could not start, returned invalid results, or
-  timed out after 15 seconds. This says nothing about filesystem atomicity.
+```bash
+trinoris-agent recover --work-dir /repo --instance operator-session \
+  --marker .mutation --operation <exact-operation-id> \
+  --reason 'All affected actors stopped; retained state inspected' --confirm-stopped
+```
 
-Codex, IDE, and CI sandboxes can block subprocess startup or filesystem inspection. A
-sandboxed run may therefore report a probe failure and `filesystem unknown`; this is not a
-non-atomic result. Rerun the command in an environment that permits child-process creation
-against the same working tree. If the filesystem name is unknown but all races complete,
-the race result is still meaningful; the name lookup is diagnostic only.
+For an incomplete/corrupt marker, `diagnose` reports missing or invalid metadata; use
+`--operation unknown` only after the same offline inspection. Recover leftover
+`locks/<scope>.breaking` and `claims/<digest>.claim` markers separately. Recovery refuses
+a changed operation ID. An abandoned `.recovery` marker requires offline operator inspection
+with every actor stopped; it is never automatically reclaimed.
 
-## Exit codes
+## Configuration, limits, and compatibility
 
-| Code | Meaning | What to do |
+Canonical configuration is `.trinoris/config.json`; the CLI and SDK read it only from the
+selected `.trinoris/` root. Setup does not create an external configuration mirror. It adds
+`/.trinoris/` to the target repository's `.gitignore`, so local coordination state is not
+committed. The package-owned contract lives at `.trinoris/PROTOCOL.md`; generated
+`AGENTS.md` and Claude skill instructions point there. Custom SDK roots do not inherit
+configuration from an unrelated parent. SDK callers without an installed configuration
+use the built-in registry; the CLI requires installed configuration.
+
+Lease: 1–1440 minutes. Grace: 0–60 minutes. Identifiers: at most 96 plain characters;
+filenames: at most 160. Records/config: at most 64 KiB; notes: at most 256 KiB.
+Verifier: 1–100 trials, 2–32 workers, at most 1024 total worker launches, and a 60-second
+overall deadline. Workers yield while waiting and terminate on timeout/abort.
+
+Heartbeats and daemon operation are unsupported in protocol 3; `heartbeat.enabled` must
+remain false. Protocol 1 records may be inspected and safely taken over after expiry/grace,
+but generation-less records never authorize check, renewal, or release. Stop all old agents
+but generation-less records never authorize check, renewal, or release. Stop all old agents
+before upgrading. Protocol 2 used the top-level `coordination/` path; protocol 3 uses
+`.trinoris/`. With all actors stopped, move the old directory to an offline backup outside
+the working tree. Review and selectively preserve handoff/archive/incident history; do not
+restore active locks or mutation markers. Run `setup` to create a fresh `.trinoris/`, inspect
+its generated instructions, then run `verify` before starting only protocol 3 clients. Do not
+run protocol 2 and 3 clients concurrently.
+
+## Exit codes and automation
+
+| Exit | Meaning | Caller action |
 | --- | --- | --- |
-| `0` | Command succeeded; for `verify`, setup and the filesystem gate passed | Continue |
-| `1` | Invalid input, missing setup/configuration, probe failure, or non-atomic filesystem | Read the error and notes; fix the cause before relying on the protocol |
-| `3` | Scope or handoff claim is contended | Choose other work or coordinate with the holder; do not spin |
-| `4` | This instance does not hold the scope or lost ownership | Stop writing in that scope and re-acquire before continuing |
+| 0 | Success | Retain returned generation/receipt; continue within its scope |
+| 1 | Invalid input, incomplete readiness, conflict, or uncertain I/O | Inspect and correct; do not assume success |
+| 3 | Contention | Pick other work or hand off; never spin |
+| 4 | Lease lost or cannot be confirmed | Stop editing and safely reacquire |
 
-## Command reference
-
-```text
-trinoris-agent setup [--force] [--work-dir DIR]
-  [--agent-classes CLASS,CLASS] [--scopes SCOPE,SCOPE]
-trinoris-agent verify [--work-dir DIR] [--trials N] [--concurrency N]
-trinoris-agent status [--work-dir DIR] [--scope SCOPE]
-trinoris-agent acquire --scope SCOPE [--task TEXT] [identity options]
-trinoris-agent check --scope SCOPE [identity options]
-trinoris-agent renew --scope SCOPE [identity options]
-trinoris-agent release --scope SCOPE [identity options]
-trinoris-agent break --scope SCOPE --reason TEXT [identity options]
-trinoris-agent claim --note FILENAME [--from DIR] [--to DIR] [identity options]
-
-identity options:
-  --agent-class CLASS   Defaults to claude
-  --instance ID         Generated per invocation if omitted
-  --work-dir DIR        Defaults to the current directory
-```
-
-## License
+`--json` gives structured stdout. Errors use bounded escaped stderr. Keep secrets out of
+all task/reason/note fields. Runtime tests and release gates live alongside package code.
+The installed `.trinoris/PROTOCOL.md` is self-contained; adopters do not need repository specifications.
 
 Apache-2.0 — see [LICENSE](./LICENSE).
 

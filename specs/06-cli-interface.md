@@ -6,6 +6,20 @@ Proprietary and confidential.
 
 # 06 — CLI interface and agent invocation
 
+## Protocol 3 implementation notice
+
+The historical analysis below describes the original protocol and proposed tool behavior.
+The shipped `0.2.0` implementation uses protocol 3 and the versioned package-owned contract in
+`packages/core/src/protocol.ts`; setup installs its exact bytes and verify checks its digest
+under `.trinoris/`.
+[Security hardening](07-security-hardening.md) maps current behavior to regression tests.
+All mutations now share one guard; lease commands require a generation, claims validate
+recipients and use per-instance destinations, and heartbeat/daemon operation is explicitly
+unsupported. Git mutations use the conservative mutually exclusive `git` scope. Historical
+MA-T results remain evidence of their recorded runs, not proof of the current SDK or a new
+filesystem. Keep stable MA-T IDs when adding current regressions.
+
+
 ## Status: PROPOSED
 
 How agents are invoked, configured, and controlled. This spec defines the command-line
@@ -64,7 +78,7 @@ Commands (without starting agent):
   locks                       Show current scope locks
   handoffs [--class <name>]   List available handoffs (default: for my class)
   incidents [--scope <name>]  Show recent incidents (default: all)
-  init                        Create coordination/ structure in current repo
+  init                        Create .trinoris/ structure in current repo
   verify                      Verify protocol installation (runs MA-T01 if available)
 
 Commands (for AI agents in Mode B - CLI-driven):
@@ -150,7 +164,7 @@ Format:
   },
   
   "coordination": {
-    "protocol_path": "coordination/",
+    "protocol_path": ".trinoris/",
     "lease_duration": 900,
     "grace_period": 300,
     "heartbeat_interval": 120,
@@ -173,7 +187,7 @@ Format:
   
   "logging": {
     "level": "info",
-    "file": "coordination/logs/agent.log",
+    "file": ".trinoris/logs/agent.log",
     "include_timestamps": true
   }
 }
@@ -186,7 +200,7 @@ Format:
 | `agent` | `class` | string | Agent class (e.g., `codex-gpt-6`) |
 | `agent` | `instance_id` | string | Instance ID or `"auto"` to generate |
 | `agent` | `capabilities` | array | Freeform tags (for human reference) |
-| `coordination` | `protocol_path` | string | Path to coordination/ directory |
+| `coordination` | `protocol_path` | string | Path to .trinoris/ directory |
 | `coordination` | `lease_duration` | int | Seconds (default: 900) |
 | `coordination` | `grace_period` | int | Seconds before breaking (default: 300) |
 | `coordination` | `heartbeat_interval` | int | Seconds between heartbeats (default: 120) |
@@ -212,7 +226,7 @@ $ trinoris-agent --class codex-gpt-6
 
 Agent: codex-gpt-6-a3f2
 Working directory: /my-project
-Protocol: coordination/PROTOCOL.md (v1.0) ✓
+Protocol: .trinoris/PROTOCOL.md (v1.0) ✓
 Configuration: .kiro/coordination.json
 
 Scanning handoff/for-codex-gpt-6/...
@@ -239,14 +253,14 @@ Available handoffs:
 Select handoff (1-3, 's' to check status, 'r' to refresh, 'q' to quit): 1
 
 Claiming task-engine.md...
-  mkdir coordination/claims/task-engine.md.claim ✓
-  mv to coordination/active/codex-gpt-6-a3f2/task-engine.md ✓
+  mkdir .trinoris/claims/task-engine.md.claim ✓
+  mv to .trinoris/active/codex-gpt-6-a3f2/task-engine.md ✓
 
 Checking for recent incidents in [engine]...
   No incidents found ✓
 
 Acquiring scope locks: [engine]
-  mkdir coordination/locks/engine.lock ✓
+  mkdir .trinoris/locks/engine.lock ✓
   Writing holder.json ✓
 
 Lock acquired. Ready to work.
@@ -411,7 +425,7 @@ $ trinoris-agent status
 
 Coordination Protocol Status
 
-Protocol: coordination/PROTOCOL.md ✓
+Protocol: .trinoris/PROTOCOL.md ✓
 Version: 1.0
 Working directory: /my-project
 
@@ -440,29 +454,29 @@ $ trinoris-agent init
 Initializing coordination protocol in /my-project...
 
 Creating directory structure:
-  coordination/ ✓
-  coordination/locks/ ✓
-  coordination/claims/ ✓
-  coordination/handoff/ ✓
-    coordination/handoff/for-codex-gpt-6/ ✓
-    coordination/handoff/for-claude-opus-5/ ✓
-    coordination/handoff/for-claude-sonnet-4/ ✓
-  coordination/active/ ✓
-  coordination/archive/ ✓
-  coordination/incidents/ ✓
-  coordination/heartbeat/ ✓
+  .trinoris/ ✓
+  .trinoris/locks/ ✓
+  .trinoris/claims/ ✓
+  .trinoris/handoff/ ✓
+    .trinoris/handoff/for-codex-gpt-6/ ✓
+    .trinoris/handoff/for-claude-opus-5/ ✓
+    .trinoris/handoff/for-claude-sonnet-4/ ✓
+  .trinoris/active/ ✓
+  .trinoris/archive/ ✓
+  .trinoris/incidents/ ✓
+  .trinoris/heartbeat/ ✓
 
 Copying protocol spec:
-  coordination/PROTOCOL.md ✓
-  coordination/TEMPLATE-handoff.md ✓
+  .trinoris/PROTOCOL.md ✓
+  .trinoris/TEMPLATE-handoff.md ✓
 
 Creating archive index:
-  coordination/archive/INDEX.md ✓
+  .trinoris/archive/INDEX.md ✓
 
 Initialization complete.
 
 Next steps:
-  1. Review coordination/PROTOCOL.md
+  1. Review .trinoris/PROTOCOL.md
   2. Configure agent classes in .kiro/coordination.json
   3. Run 'trinoris-agent verify' to test atomicity
 
@@ -507,7 +521,7 @@ Precedence (highest to lowest):
 $ trinoris-agent --class codex-gpt-6
 
 Error: Coordination protocol not found
-  Looked for: coordination/PROTOCOL.md in /my-project
+  Looked for: .trinoris/PROTOCOL.md in /my-project
   
 Did you forget to initialize?
   Run: trinoris-agent init
@@ -521,7 +535,7 @@ Exit code: 4
 $ trinoris-agent handoffs --class codex-gpt-6
 
 Error: No handoff directory for class 'codex-gpt-6'
-  Expected: coordination/handoff/for-codex-gpt-6/
+  Expected: .trinoris/handoff/for-codex-gpt-6/
   Found classes: claude-opus-5, claude-sonnet-4
   
 Available handoffs are for other agent classes.
@@ -563,10 +577,10 @@ Exit code: 2
 [2026-10-25T11:20:01Z] [INFO] [codex-gpt-6-a3f2] Scanning handoff/for-codex-gpt-6/
 [2026-10-25T11:20:02Z] [INFO] [codex-gpt-6-a3f2] Found 3 handoffs
 [2026-10-25T11:20:15Z] [INFO] [codex-gpt-6-a3f2] Claiming task-engine.md
-[2026-10-25T11:20:16Z] [DEBUG] [codex-gpt-6-a3f2] mkdir coordination/claims/task-engine.md.claim
+[2026-10-25T11:20:16Z] [DEBUG] [codex-gpt-6-a3f2] mkdir .trinoris/claims/task-engine.md.claim
 [2026-10-25T11:20:16Z] [INFO] [codex-gpt-6-a3f2] Claim successful
 [2026-10-25T11:20:17Z] [INFO] [codex-gpt-6-a3f2] Acquiring scope: engine
-[2026-10-25T11:20:17Z] [DEBUG] [codex-gpt-6-a3f2] mkdir coordination/locks/engine.lock
+[2026-10-25T11:20:17Z] [DEBUG] [codex-gpt-6-a3f2] mkdir .trinoris/locks/engine.lock
 [2026-10-25T11:20:17Z] [INFO] [codex-gpt-6-a3f2] Lock acquired: engine
 [2026-10-25T11:20:18Z] [INFO] [codex-gpt-6-a3f2] Starting work on task-engine.md
 [2026-10-25T11:25:00Z] [DEBUG] [codex-gpt-6-a3f2] Heartbeat written
@@ -578,8 +592,8 @@ Exit code: 2
 
 ### Log files
 
-- `coordination/logs/<instance-id>.log` — per-instance log
-- `coordination/logs/protocol.log` — all agent activity (append-only)
+- `.trinoris/logs/<instance-id>.log` — per-instance log
+- `.trinoris/logs/protocol.log` — all agent activity (append-only)
 
 Rotation: daily, keep last 7 days
 
@@ -599,24 +613,24 @@ User in Codex IDE: "Take off from task-engine"
 
 Codex AI:
   1. Read: AGENTS.md → discover protocol
-  2. Read: coordination/PROTOCOL.md → learn rules
-  3. Execute: ls coordination/handoff/for-codex-gpt-6/
-  4. Execute: mkdir coordination/claims/task-engine.md.claim
+  2. Read: .trinoris/PROTOCOL.md → learn rules
+  3. Execute: ls .trinoris/handoff/for-codex-gpt-6/
+  4. Execute: mkdir .trinoris/claims/task-engine.md.claim
   5. Execute: mv handoff/for-codex-gpt-6/task-engine.md \
                 active/codex-gpt-6-a3f2/task-engine.md
-  6. Execute: rmdir coordination/claims/task-engine.md.claim
+  6. Execute: rmdir .trinoris/claims/task-engine.md.claim
   7. Read: active/codex-gpt-6-a3f2/task-engine.md → parse scopes: [engine]
-  8. Execute: mkdir coordination/locks/engine.lock
+  8. Execute: mkdir .trinoris/locks/engine.lock
   9. Execute: echo '{...holder.json...}' > locks/engine.lock/holder.json
   10. [Do actual work: edit files, run tests]
-  11. Execute: rm -rf coordination/locks/engine.lock
+  11. Execute: rm -rf .trinoris/locks/engine.lock
   12. Execute: mv active/codex-gpt-6-a3f2/task-engine.md archive/
 ```
 
 **Entry point files:**
 - `AGENTS.md` (Codex) or `.claude/skills/agent-handoff/SKILL.md` (Claude)
-- `coordination/PROTOCOL.md` (full spec)
-- `coordination/TEMPLATE-handoff.md` (format reference)
+- `.trinoris/PROTOCOL.md` (full spec)
+- `.trinoris/TEMPLATE-handoff.md` (format reference)
 
 **Pros:**
 - No implementation needed beyond markdown documentation
@@ -654,7 +668,7 @@ Codex AI:
      Output: "Lock released: engine"
   
   7. Execute: trinoris-agent archive task-engine.md --outcome "completed: tests pass"
-     Output: "Archived to coordination/archive/"
+     Output: "Archived to .trinoris/archive/"
 ```
 
 **Commands available:**
@@ -683,7 +697,7 @@ trinoris-agent status                        # Overall status
 
 Use both modes:
 
-1. **Mode A for learning:** AI reads `coordination/PROTOCOL.md` to understand the protocol
+1. **Mode A for learning:** AI reads `.trinoris/PROTOCOL.md` to understand the protocol
    conceptually (what locks are, why leases exist, etc.)
 
 2. **Mode B for execution:** AI calls `trinoris-agent` commands to perform operations

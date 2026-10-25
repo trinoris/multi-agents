@@ -10,14 +10,20 @@
  * this filesystem behaves, not whether we believe it does.
  */
 
-import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
+import { PROTOCOL_TEXT, PROTOCOL_VERSION } from '@trinoris/agent-core';
+import { loadConfiguration, readText, removeOwnedDirectory, safePath } from '@trinoris/agent-sdk';
 
 export interface VerifyResult {
   structureOk: boolean;
   configOk: boolean;
+  protocolOk: boolean;
+  gitignoreOk: boolean;
+  ready: boolean;
   /** null means the probe could not run to completion; it is not an atomicity failure. */
   atomicityOk: boolean | null;
   filesystem: string;
@@ -38,11 +44,14 @@ function validateOptions(trials: number, concurrency: number): void {
   if (!Number.isInteger(concurrency) || concurrency < 2) {
     throw new RangeError(`concurrency must be an integer of at least 2; received ${concurrency}`);
   }
+  if (trials > 100) throw new RangeError('trials must be at most 100');
+  if (concurrency > 32) throw new RangeError('concurrency must be at most 32');
+  if (trials * concurrency > 1024) throw new RangeError('trials x concurrency must be at most 1024');
 }
 
-function filesystemOf(path: string): { name: string; warning?: string } {
+function filesystemOf(path: string, remainingMs: number): { name: string; warning?: string } {
   try {
-    return { name: execFileSync('stat', ['-f', '-c', '%T', path], { encoding: 'utf8' }).trim() };
+    return { name: execFileSync('stat', ['-f', '-c', '%T', '--', path], { encoding: 'utf8', timeout: Math.max(1, Math.min(2000, remainingMs)), maxBuffer: 4096 }).trim() };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     return { name: 'unknown', warning: `could not identify filesystem type: ${detail}` };
@@ -55,13 +64,20 @@ function filesystemOf(path: string): { name: string; warning?: string } {
  * Each process reports READY before the parent releases the barrier, so every
  * contender is known to have started before the race begins.
  */
-async function raceOnce(lockPath: string, barrier: string, n: number): Promise<number> {
+async function raceOnce(lockPath: string, barrier: string, n: number, timeoutMs: number, signal?: AbortSignal): Promise<number> {
+  if (signal?.aborted) throw new Error('probe aborted');
   const child = `
     const fs = require('node:fs');
     const lockPath = process.argv[1];
     const barrierPath = process.argv[2];
     process.stdout.write('READY\\n');
-    while (!fs.existsSync(barrierPath)) {}
+    const deadline = Date.now() + 15000;
+    const parent = Number(process.argv[3]);
+    (async () => {
+    while (!fs.existsSync(barrierPath)) {
+      if (Date.now() > deadline || process.ppid !== parent) throw new Error('barrier timeout or parent stopped');
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
     try {
       fs.mkdirSync(lockPath);
       process.stdout.write('WIN\\n');
@@ -72,9 +88,10 @@ async function raceOnce(lockPath: string, barrier: string, n: number): Promise<n
         process.exitCode = 1;
       }
     }
+    })().catch(error => { process.stderr.write(String(error.message)); process.exitCode = 1; });
   `;
   const children = Array.from({ length: n }, () => {
-    const p = spawn(process.execPath, ['-e', child, lockPath, barrier], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const p = spawn(process.execPath, ['-e', child, lockPath, barrier, String(process.pid)], { stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let stderr = '';
     let ready = false;
@@ -88,8 +105,8 @@ async function raceOnce(lockPath: string, barrier: string, n: number): Promise<n
       readyReject(new Error(detail));
       resultResolve({ code: null, signal: null, error: detail });
     });
-    p.stdout.on('data', (d) => { out += d.toString(); });
-    p.stderr.on('data', (d) => { stderr += d.toString(); });
+    p.stdout.on('data', (d) => { out += d.toString(); if (out.length > 256) p.kill('SIGKILL'); });
+    p.stderr.on('data', (d) => { stderr += d.toString(); if (stderr.length > 4096) p.kill('SIGKILL'); });
     p.stdout.on('data', () => {
       if (!ready && /^READY$/m.test(out)) {
         ready = true;
@@ -99,7 +116,7 @@ async function raceOnce(lockPath: string, barrier: string, n: number): Promise<n
     p.on('close', (code, signal) => {
       if (!ready) {
         const reason = timedOut
-          ? `race workers timed out after ${RACE_TIMEOUT_MS / 1000}s`
+          ? `race workers timed out after ${timeoutMs / 1000}s`
           : `race worker exited before READY (code ${code}, signal ${signal ?? 'none'})${stderr ? `: ${stderr.trim()}` : ''}`;
         readyReject(new Error(reason));
       }
@@ -112,12 +129,15 @@ async function raceOnce(lockPath: string, barrier: string, n: number): Promise<n
   const timeout = setTimeout(() => {
     timedOut = true;
     for (const child of children) child.p.kill('SIGKILL');
-  }, RACE_TIMEOUT_MS);
+  }, timeoutMs);
+  const abort = () => { for (const child of children) child.p.kill('SIGKILL'); };
+  signal?.addEventListener('abort', abort, { once: true });
   try {
     await Promise.all(children.map(child => child.readyPromise));
-    writeFileSync(barrier, 'release\\n', 'utf8');
+    writeFileSync(barrier, 'release\n', { encoding: 'utf8', flag: 'wx', mode: 0o600 });
     const results = await Promise.all(children.map(child => child.resultPromise));
-    if (timedOut) throw new Error(`race workers timed out after ${RACE_TIMEOUT_MS / 1000}s`);
+    if (signal?.aborted) throw new Error('probe aborted');
+    if (timedOut) throw new Error(`race workers timed out after ${timeoutMs / 1000}s`);
     const errors: string[] = [];
     let winners = 0;
     let losers = 0;
@@ -138,47 +158,64 @@ async function raceOnce(lockPath: string, barrier: string, n: number): Promise<n
     throw error;
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener('abort', abort);
+    await Promise.all(children.map(child => child.resultPromise));
   }
 }
 
-export async function verify(workDir: string, trials = 50, concurrency = 8): Promise<VerifyResult> {
+export async function verify(workDir: string, trials = 50, concurrency = 8, options: { signal?: AbortSignal } = {}): Promise<VerifyResult> {
   validateOptions(trials, concurrency);
-  const coord = join(workDir, 'coordination');
+  const coord = join(workDir, '.trinoris');
   const notes: string[] = [];
 
   const required = ['locks', 'claims', 'handoff', 'active', 'archive', 'incidents'];
-  const missing = required.filter(d => !existsSync(join(coord, d)));
-  const structureOk = existsSync(coord) && missing.length === 0;
+  const missing = required.filter(d => !safePath(workDir, join(coord, d))?.isDirectory());
+  const structureOk = !!safePath(workDir, coord)?.isDirectory() && missing.length === 0;
   if (!structureOk) {
-    notes.push(existsSync(coord)
+    notes.push(safePath(workDir, coord)
       ? `missing subdirectories: ${missing.join(', ')}`
-      : `no coordination/ in ${workDir} — run setup first`);
+      : `no .trinoris/ in ${workDir} — run setup first`);
   }
 
   let configOk = false;
-  for (const p of [join(workDir, '.kiro', 'coordination.json'), join(coord, 'config.json')]) {
-    try {
-      const c = JSON.parse(readFileSync(p, 'utf8'));
-      if (Array.isArray(c?.scopes?.registry) && c.scopes.registry.length) { configOk = true; break; }
-      notes.push(`${p} parsed but has no scopes.registry`);
-    } catch { /* try next */ }
-  }
-  if (!configOk) notes.push('no readable coordination config with a scope registry');
+  try { loadConfiguration({ root: coord }, true); configOk = true; }
+  catch (e) { notes.push(`configuration not ready: ${e instanceof Error ? e.message : String(e)}`); }
+  let protocolOk = false;
+  let gitignoreOk = false;
+  try {
+    gitignoreOk = (readText(workDir, join(workDir, '.gitignore'), 1024 * 1024) ?? '')
+      .split(/\r?\n/).some(line => line.trim() === '/.trinoris/');
+    if (!gitignoreOk) notes.push('missing /.trinoris/ ignore rule in .gitignore; rerun setup');
+  } catch (e) { notes.push(`gitignore not ready: ${e instanceof Error ? e.message : String(e)}`); }
+  try {
+    const contract = readText(workDir, join(coord, 'PROTOCOL.md'), 65536);
+    const meta = JSON.parse(readText(workDir, join(coord, 'protocol.json')) ?? 'null');
+    const expected = createHash('sha256').update(PROTOCOL_TEXT).digest('hex');
+    protocolOk = contract !== null && meta?.version === PROTOCOL_VERSION && meta?.sha256 === expected && createHash('sha256').update(contract).digest('hex') === expected;
+    if (!protocolOk) notes.push('protocol missing or divergent: run setup and inspect the package-owned contract');
+    for (const path of ['AGENTS.md', '.claude/skills/agent-handoff/SKILL.md']) {
+      if (!readText(workDir, join(workDir, path))?.includes('.trinoris/PROTOCOL.md')) { protocolOk = false; notes.push('missing generated protocol pointer'); }
+    }
+  } catch (e) { notes.push(`protocol not ready: ${e instanceof Error ? e.message : String(e)}`); }
 
-  // Race in the tree being verified — the filesystem under coordination/ is the one
+  // Race in the tree being verified — the filesystem under .trinoris/ is the one
   // that has to behave. Fall back to tmp only when the tree is not set up yet.
   const arenaBase = structureOk ? coord : tmpdir();
-  const arena = join(arenaBase, '.verify-atomicity');
-  rmSync(arena, { recursive: true, force: true });
-  mkdirSync(arena, { recursive: true });
+  if (!safePath(arenaBase)?.isDirectory()) throw new Error('Unsafe verifier filesystem root');
+  const arena = mkdtempSync(join(arenaBase, '.verify-atomicity-'));
 
   let badTrials = 0, totalWinners = 0;
   const probeErrors: string[] = [];
+  let filesystem = 'unknown';
+  const deadline = Date.now() + 60_000;
+  try {
   for (let t = 0; t < trials; t++) {
     const lock = join(arena, `t${t}.lock`);
     const barrier = join(arena, `go${t}`);
     try {
-      const winners = await raceOnce(lock, barrier, concurrency);
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw new Error('overall probe deadline exceeded');
+      const winners = await raceOnce(lock, barrier, concurrency, Math.min(RACE_TIMEOUT_MS, remaining), options.signal);
       totalWinners += winners;
       if (winners !== 1) {
         badTrials++;
@@ -191,14 +228,14 @@ export async function verify(workDir: string, trials = 50, concurrency = 8): Pro
       break;
     }
   }
-  const filesystemInfo = filesystemOf(arena);
-  const filesystem = filesystemInfo.name;
+  const filesystemInfo = filesystemOf(arena, deadline - Date.now());
+  filesystem = filesystemInfo.name;
   if (filesystemInfo.warning) notes.push(filesystemInfo.warning);
-  rmSync(arena, { recursive: true, force: true });
+  } finally { removeOwnedDirectory(arenaBase, arena); }
 
   const atomicityOk = probeErrors.length ? null : badTrials === 0 && totalWinners === trials;
   if (atomicityOk === false) {
     notes.push('mkdir is NOT atomic here — do not install the protocol in this tree');
   }
-  return { structureOk, configOk, atomicityOk, filesystem, trials, concurrency, badTrials, totalWinners, probeErrors, notes };
+  return { structureOk, configOk, protocolOk, gitignoreOk, ready: structureOk && configOk && protocolOk && gitignoreOk && atomicityOk === true, atomicityOk, filesystem, trials, concurrency, badTrials, totalWinners, probeErrors, notes };
 }

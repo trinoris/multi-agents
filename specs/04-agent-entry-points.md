@@ -6,6 +6,20 @@ Proprietary and confidential.
 
 # 04 — Agent entry points
 
+## Protocol 3 implementation notice
+
+The historical analysis below describes the original protocol and proposed tool behavior.
+The shipped `0.2.0` implementation uses protocol 3 and the versioned package-owned contract in
+`packages/core/src/protocol.ts`; setup installs its exact bytes and verify checks its digest
+under `.trinoris/`.
+[Security hardening](07-security-hardening.md) maps current behavior to regression tests.
+All mutations now share one guard; lease commands require a generation, claims validate
+recipients and use per-instance destinations, and heartbeat/daemon operation is explicitly
+unsupported. Git mutations use the conservative mutually exclusive `git` scope. Historical
+MA-T results remain evidence of their recorded runs, not proof of the current SDK or a new
+filesystem. Keep stable MA-T IDs when adding current regressions.
+
+
 ## Status: PROPOSED
 
 How each tool is bound to the protocol. The protocol is useless if an agent has to be told
@@ -40,12 +54,12 @@ description: Coordinate with the Codex agent sharing this working tree — acqui
   second agent may be active, and before any branch or commit operation.
 ---
 
-Read `coordination/PROTOCOL.md` before acting. It is the contract; this file is a pointer.
+Read `.trinoris/PROTOCOL.md` before acting. It is the contract; this file is a pointer.
 
 Before your first write in a session:
-1. `ls coordination/locks/` — if a scope you need is held and its lease is live, do not
+1. `ls .trinoris/locks/` — if a scope you need is held and its lease is live, do not
    wait. Pick other work or write a handoff.
-2. Acquire by `mkdir coordination/locks/<scope>.lock`, then immediately write
+2. Acquire by `mkdir .trinoris/locks/<scope>.lock`, then immediately write
    `holder.json`.
 3. Re-confirm you are the holder immediately before each batch of writes.
 
@@ -57,7 +71,7 @@ the agent must know to invoke it:
 
 ```markdown
 A second agent (Codex) may share this working tree. Before editing, read
-`coordination/PROTOCOL.md` and hold the lock for the scope you are editing.
+`.trinoris/PROTOCOL.md` and hold the lock for the scope you are editing.
 ```
 
 ## Codex CLI — `AGENTS.md`
@@ -70,18 +84,18 @@ in its own file, pointing at the same protocol:
 
 A second agent (Claude Code) may share this working tree.
 
-**Read `coordination/PROTOCOL.md` before editing anything.** It is the contract.
+**Read `.trinoris/PROTOCOL.md` before editing anything.** It is the contract.
 
 Non-negotiable:
 - No lock, no write. Reading is free.
-- Acquire a scope with `mkdir coordination/locks/<scope>.lock`, then immediately write
+- Acquire a scope with `mkdir .trinoris/locks/<scope>.lock`, then immediately write
   `holder.json`. Failure to create means it is held — do not wait, do not spin.
 - Never switch branches, rebase, reset or commit while the peer holds any lock.
 - Re-confirm you hold the lock immediately before each batch of writes.
 - Release before writing a handoff and before stopping.
 
-Handoffs addressed to you are in `coordination/handoff/for-codex/`. Claim one by moving it
-to `coordination/active/`.
+Handoffs addressed to you are in `.trinoris/handoff/for-codex/`. Claim one by moving it
+to `.trinoris/active/`.
 ```
 
 ## The asymmetry worth noting
@@ -106,8 +120,8 @@ agents in two different clones of the same repo do not need it; two agents in on
 What a consuming repo gets:
 
 ```text
-coordination/              scaffolding (locks/, handoff/, active/, archive/, incidents/)
-coordination/PROTOCOL.md   copied, or symlinked from this repo
+.trinoris/              scaffolding (locks/, handoff/, active/, archive/, incidents/)
+.trinoris/PROTOCOL.md   copied, or symlinked from this repo
 AGENTS.md                  Codex entry point
 .claude/skills/agent-handoff/SKILL.md
 CLAUDE.md                  one pointer line added

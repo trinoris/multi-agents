@@ -6,115 +6,80 @@ Proprietary and confidential.
 
 # Publishing
 
-Run these yourself — the account has 2FA enforced, so publishing needs a one-time code
-from your authenticator.
+Manual releases publish public packages to npmjs.com. This repository's CI runs tests;
+it does not publish packages or require an npm publishing token.
 
-## Use pnpm, never npm
+## Prepare a release
 
-The packages depend on each other with the `workspace:*` protocol and **npm ships that
-string verbatim**. Verified on this repo:
-
-| Command | What lands in the tarball |
-| --- | --- |
-| `npm pack` | `"@trinoris/agent-core": "workspace:*"` — every consumer install fails with `Unsupported URL Type: workspace:` |
-| `pnpm pack` | `"@trinoris/agent-core": "0.1.0"` — correct |
-
-A version number can never be reused on npm and unpublish is limited to 72 hours, so one
-`npm publish` here is not recoverable at that version.
-
-## Initial publication order
-
-For a first publication when dependencies are not yet on npm, publish `agent-core` →
-`agent-sdk` → `agent-cli`. The CLI depends on the other two; publishing it first puts a
-version on the registry whose dependencies do not exist yet. Do not republish unchanged
-core or SDK versions during a CLI-only release.
-
-## The release gate
-
-Use the release script for both initial and incremental publications. Direct `pnpm publish`
-commands bypass the repository's release checks and should not be used. From the repo root,
-the release script validates manifests before running package code, performs a frozen
-install with lifecycle scripts disabled, audits all dependencies, runs every workspace
-test, builds new package targets, and only then publishes packages whose exact version is
-not already on npm. It fails on high or critical dependency advisories. Release tooling
-requires Node.js 20 or later; the published CLI itself supports Node.js 18 or later.
-
-Get a fresh 6-digit authenticator code before each publish; codes are valid for about 30
-seconds.
+Use Node.js 20+ and the exact pnpm version in `packageManager` (currently 8.12.0).
+Commit the reviewed source changes before a real release. The release script rejects
+unknown workspace members, executable package-manager hooks, local registry configuration,
+unreviewed manifest fields/dependencies, and lockfile source changes outside its policy.
 
 ```bash
-cd /mnt/c/Users/Hai-Linh/trinoris/trinoris-multi-agents
+# Authenticate with npm's supported login flow, or provide a restricted short-lived
+# NODE_AUTH_TOKEN / NPM_REGISTRY_TOKEN externally for the final publish step.
+npm login --scope=@trinoris
 
-# Check identity (should print your npm username)
-npm whoami
+# Complete rehearsal; nothing is published.
+bash scripts/release.sh --dry-run
 
-# Rehearse the complete release gate; publishes nothing
-pnpm release:dry
-
-# Publish only new versions after the same gate passes
-pnpm release -- --otp=123456
+# Publish only versions absent from npm after all gates pass.
+bash scripts/release.sh
 ```
 
-**Use a fresh code for each package.** npm treats an OTP as short-lived and effectively
-single-use; reusing one across all three usually fails on the second with `EOTP`. If a
-package fails, re-run only that one — the ones before it are already published and cannot
-be republished at the same version.
+OTP arguments are deliberately unsupported. The script does not read or execute `.env`.
+Do not put an OTP in shell history or command arguments. If your npm authentication policy
+needs an interactive challenge, use the registry/tool's supported login flow; no promise
+is made that an environment variable removes a tool's internal OTP argument exposure.
 
-### How packages are selected
+## Gate order and credentials
 
-After the quality gates pass, `scripts/release.sh` checks the configured version of each
-package against npm in dependency order (`agent-core` → `agent-sdk` → `agent-cli`). It skips
-an exact version that already exists and builds/publishes only packages whose configured
-version is absent from the registry. Build dependencies may also be rebuilt locally, but
-are not published unless their own package version is new. If every current version already
-exists, the script exits after the quality gates without building or publishing anything.
+The shell script delegates to `scripts/release.mjs`. The runner validates inputs and the
+actual pnpm version, then performs a frozen install with lifecycle scripts and pnpmfile
+hooks disabled. It runs an uncached test suite, checks which exact versions already exist,
+builds the workspace, packs all three packages, inspects every archive, and installs those
+local tarballs into an empty offline consumer. That consumer runs the CLI help, setup, and
+real filesystem verifier before publication is considered.
 
-```bash
-pnpm release:dry                       # quality gates, checks versions, builds new targets, dry-runs publish
-pnpm release -- --otp=123456           # or: bash scripts/release.sh --otp=123456
-```
+Build/install/test/pack processes receive an allowlisted environment, an empty npm config,
+and an isolated home directory. Publishing credentials are supplied only to the final
+trusted publish process. This reduces credential exposure; it does not sandbox arbitrary
+source code from a hostile process sharing the publisher's filesystem permissions.
 
-The dry run publishes nothing. Registry access is required to compare exact versions; the
-script stops if npm cannot distinguish an unpublished version from a registry/network
-error. Before publishing, make sure each new package depends on versions that are already
-published or included earlier in the dependency-ordered release. With multiple new
-packages, the script uses supplied `--otp` values in package order and prompts for a fresh
-code for any remaining packages when run in a terminal. In CI, use a configured npm
-automation token.
+The required audit threshold remains high/critical. The complete audit report is retained;
+a passing threshold is not a claim that lower-severity advisories are absent. The protocol
+2 dependency update currently removes the earlier Turbo/esbuild advisories.
 
-## Avoiding OTP entirely
+## Exact artifacts and dependency ordering
 
-An **Automation** token bypasses 2FA, which is what CI needs:
+`pnpm pack` rewrites `workspace:*` dependencies to the package versions being released.
+Do not use `npm pack` directly on these workspace manifests: it leaves unresolved workspace
+ranges. The release runner validates the rewritten dependencies, expected entry points,
+file allowlist, secret patterns, archive types, and digests. Unexpected files, links,
+source maps, missing entries, or unresolved workspace dependencies block the release.
 
-npmjs.com → Access Tokens → Generate New Token → **Automation**
+It publishes the exact inspected tarball bytes in dependency order: `agent-core`,
+`agent-sdk`, then `agent-cli`. Already-published exact versions are skipped. A registry or
+network error cannot be treated as an unpublished package. After a partial publish, rerun
+the release; immutable published versions are not reused.
 
-Put it in `.env` as `NPM_REGISTRY_TOKEN=` (already gitignored). `scripts/release.sh` then
-runs unattended with no `--otp`.
+The runner never adds `--no-git-checks` to bypass source review. A real release requires a
+clean source snapshot both before and after quality gates. A dry run can inspect a dirty
+working tree and clearly records that fact, but it publishes nothing.
 
-## Afterwards
+## Retained evidence
 
-```bash
-npm view @trinoris/agent-cli version
-npm view @trinoris/agent-cli@0.1.1 dependencies # must not contain workspace:*
-```
+Each run retains `.release-artifacts/<run>/release.json`, `audit.json`, `sbom.json`, test output, and
+inspected tarballs. The report records source commit/diff state, package versions, archive
+members, SHA-256 digests, and successfully published versions. It contains no publishing
+credentials and is ignored by Git. Incomplete release evidence must be read with the
+recorded outcome; do not infer that every artifact was published from its presence alone.
 
-Then a real consumer check in an empty directory, which is the only test that proves the
-tarballs resolve against each other:
+## Protocol 3 migration and versions
 
-```bash
-mkdir /tmp/consume && cd /tmp/consume && npm init -y >/dev/null
-npm i @trinoris/agent-cli
-npx trinoris-agent --help
-```
-
-## Package versions checked on 2026-10-25
-
-| Package | Version | License | Access |
-| --- | --- | --- | --- |
-| `@trinoris/agent-core` | 0.1.0 | Apache-2.0 | public |
-| `@trinoris/agent-sdk` | 0.1.0 | Apache-2.0 | public |
-| `@trinoris/agent-cli` | 0.1.1 | Apache-2.0 | public |
-
-The release dry run found `agent-core@0.1.0` and `agent-sdk@0.1.0` already published, and
-`agent-cli@0.1.1` new. The script checks exact versions again at runtime; this table is a
-snapshot, not a substitute for that registry check.
+All three packages are prepared as `0.2.0` because lease generations, strict records,
+recipient validation, per-instance active destinations, and the `.trinoris/` state-root
+change the consumer contract. They have not been published by implementing these changes.
+Stop all earlier clients before migrating to protocol 3. See the CLI user guide and
+`specs/07-security-hardening.md` for migration rules, boundaries, and test coverage.

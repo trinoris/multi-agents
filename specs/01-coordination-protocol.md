@@ -6,6 +6,20 @@ Proprietary and confidential.
 
 # 01 — Two-agent coordination protocol
 
+## Protocol 3 implementation notice
+
+The historical analysis below describes the original protocol and proposed tool behavior.
+The shipped `0.2.0` implementation uses protocol 3 and the versioned package-owned contract in
+`packages/core/src/protocol.ts`; setup installs its exact bytes and verify checks its digest
+under `.trinoris/`.
+[Security hardening](07-security-hardening.md) maps current behavior to regression tests.
+All mutations now share one guard; lease commands require a generation, claims validate
+recipients and use per-instance destinations, and heartbeat/daemon operation is explicitly
+unsupported. Git mutations use the conservative mutually exclusive `git` scope. Historical
+MA-T results remain evidence of their recorded runs, not proof of the current SDK or a new
+filesystem. Keep stable MA-T IDs when adding current regressions.
+
+
 ## Status: PROPOSED
 
 Agent-agnostic contract for multiple coding agents sharing one working tree. Agents are
@@ -13,7 +27,7 @@ identified by **model class** (e.g., `codex-gpt-6`, `claude-opus-5`) with unique
 **instance IDs** at runtime (e.g., `codex-gpt-6-a3f2`).
 
 This spec is the single source of truth. It is maintained in `trinoris-multi-agents` and
-copied into each consuming working tree as `coordination/PROTOCOL.md`.
+copied into each consuming working tree as `.trinoris/PROTOCOL.md`.
 `.claude/skills/agent-handoff/SKILL.md` and
 `AGENTS.md` are thin entry points that point here — if they ever disagree with this file,
 this file wins.
@@ -71,8 +85,8 @@ same bytes through `C:\` / `/mnt/c`. Therefore:
 
 - The protocol is defined in terms of **operations** ("create a directory; failure means
   held"), never in terms of a shell snippet. Equivalents:
-  - bash: `mkdir coordination/locks/engine.lock`
-  - PowerShell: `New-Item -ItemType Directory coordination/locks/engine.lock`
+  - bash: `mkdir .trinoris/locks/engine.lock`
+  - PowerShell: `New-Item -ItemType Directory .trinoris/locks/engine.lock`
 - Write files as UTF-8 with LF endings.
 - Treat paths as case-sensitive even though Windows is not. Never rely on case to
   distinguish two things.
@@ -83,7 +97,7 @@ same bytes through `C:\` / `/mnt/c`. Therefore:
 ## Layout
 
 ```text
-coordination/
+.trinoris/
 ├── PROTOCOL.md              this file
 ├── TEMPLATE-handoff.md      copy this to write a handoff (format: spec 03)
 ├── locks/<scope>.lock/      a lock. Directory presence = held
@@ -109,7 +123,7 @@ coordination/
 
 ## What is version-controlled
 
-`coordination/` is split, not ignored wholesale:
+`.trinoris/` is split, not ignored wholesale:
 
 | Path | Tracked? | Why |
 | --- | --- | --- |
@@ -166,7 +180,7 @@ Read-only git needs **no** lock: `status`, `log`, `diff`, `show`, `ls-files`, `r
 A branch switch changes every file under both agents' feet, so `git` is the one scope
 where holding it while the peer is mid-edit is actively destructive. **Before acquiring
 `git` for any branch-mutating operation** (`checkout`, `switch`, `merge`, `rebase`,
-`reset`), **`ls coordination/locks/` and abort if any peer lock with a live lease exists.**
+`reset`), **`ls .trinoris/locks/` and abort if any peer lock with a live lease exists.**
 Read each peer lock's `holder.json` to check `expires_at`. If any peer lock is live, write
 a handoff asking for the switch instead of forcing it. Commits and index operations are
 safe to perform while peer locks are held, as they don't change the working tree.
@@ -179,7 +193,7 @@ safe to perform while peer locks are held, as they don't change the working tree
    incident file for this scope exists with a timestamp less than 1 hour old, read it
    before proceeding. You may be re-acquiring after an eviction, or the peer may have
    discovered corruption.
-2. Create the directory `coordination/locks/<scope>.lock`.
+2. Create the directory `.trinoris/locks/<scope>.lock`.
    - Success → you hold it. Continue to step 3.
    - Failure → held by someone. Go to **Contention**.
 3. Immediately write `holder.json` inside it:
@@ -192,7 +206,7 @@ safe to perform while peer locks are held, as they don't change the working tree
   "task": "one line: what you are doing and why",
   "acquired_at": "2026-10-25T14:03:11Z",
   "expires_at": "2026-10-25T14:18:11Z",
-  "handoff": "coordination/active/codex-gpt-6-a3f2/2026-10-25T1402-rename-engine-fields.md"
+  "handoff": ".trinoris/active/codex-gpt-6-a3f2/2026-10-25T1402-rename-engine-fields.md"
 }
 ```
 
@@ -204,7 +218,7 @@ peers where to read the full context instead of guessing from one line.
 - While working, rewrite `holder.json` with a pushed-out `expires_at` at least every
   **5 minutes of active work**. A lease is a promise you are still alive, not a reservation.
 - For long operations (>5 minutes) that cannot be checkpointed, write
-  `coordination/heartbeat/<agent-instance>.json` every 2 minutes as a lightweight liveness signal:
+  `.trinoris/heartbeat/<agent-instance>.json` every 2 minutes as a lightweight liveness signal:
   ```json
   {
     "agent_instance": "codex-gpt-6-a3f2",
@@ -234,7 +248,7 @@ Read the peer's `holder.json`:
   write a handoff note into `handoff/for-<peer-class>/` and stop. Blocking on a lock wastes
   an agent.
 - **`expires_at` in the past by more than the 5-minute grace** → check
-  `coordination/heartbeat/<peer-instance>.json`. If it exists and its `at` timestamp is less than
+  `.trinoris/heartbeat/<peer-instance>.json`. If it exists and its `at` timestamp is less than
   3 minutes old, the peer is alive but slow — wait one additional grace period (5 minutes)
   before reconsidering. If no fresh heartbeat, you may break the lock via the break-token
   sequence below. Never decide this and act on it in one step: at the exact grace boundary
@@ -249,19 +263,19 @@ Read the peer's `holder.json`:
 Breaking is permitted and sometimes necessary. Doing it silently is not — and it must be
 serialised, or two agents break the same lock and the second one evicts the first.
 
-1. `mkdir coordination/locks/<scope>.breaking` — **the atomic right to break.** If this
+1. `mkdir .trinoris/locks/<scope>.breaking` — **the atomic right to break.** If this
    fails, another agent is already breaking this scope: stand down entirely, do not touch
    the lock.
 2. Re-check that the lock is still stale. The holder may have renewed while you were
    acquiring the token.
-3. Write `coordination/incidents/<ISO8601>-broken-<scope>.md` recording: your instance ID,
+3. Write `.trinoris/incidents/<ISO8601>-broken-<scope>.md` recording: your instance ID,
    agent class, the scope, the holder you evicted (both instance and class), that holder's
    `acquired_at`/`expires_at`, why you judged it dead, and what you intend to do next.
 4. `mv` the stale lock directory to `incidents/<ISO8601>-<scope>.stale` — move it aside
    rather than deleting it, so the evicted holder's metadata survives as evidence.
 5. `mkdir` the lock fresh and write your own `holder.json` with your instance ID.
 6. Re-read `holder.json` and confirm `agent_instance` is yours. If it is not, you lost: stand down.
-7. `rmdir coordination/locks/<scope>.breaking`.
+7. `rmdir .trinoris/locks/<scope>.breaking`.
 8. **Assume the evicted agent left the tree mid-edit.** Run `git status` and the relevant
    tests before building on what you find. A broken lock means the work in that scope is of
    unknown quality, not that it is absent.
@@ -270,12 +284,12 @@ serialised, or two agents break the same lock and the second one evicts the firs
 
 ### Writing one
 
-Write `coordination/handoff/for-<agent-class>/<ISO8601>-<slug>.md` using the format in
+Write `.trinoris/handoff/for-<agent-class>/<ISO8601>-<slug>.md` using the format in
 [`03-handoff-format.md`](03-handoff-format.md). Address it to an **agent class** (e.g.,
 `for-codex-gpt-6/`) so any instance of that class can claim it, or specify a particular
 instance in the frontmatter if the work must be done by that specific agent.
 
-A consuming tree may keep a copy of the format as `coordination/TEMPLATE-handoff.md`; the
+A consuming tree may keep a copy of the format as `.trinoris/TEMPLATE-handoff.md`; the
 spec is authoritative.
 
 Release your locks **before** writing the note, so peers can act on it immediately.
@@ -290,10 +304,10 @@ Claiming is **two steps**, because `mv` is not an atomic claim:
    - Check `to_instance`: if `any`, you can claim; if a specific instance ID, only that instance can claim
    - Check `scopes`: verify those scopes are available (not currently held by other agents)
    
-2. `mkdir coordination/claims/<note-filename>.claim` — this is the atomic step. Failure
+2. `mkdir .trinoris/claims/<note-filename>.claim` — this is the atomic step. Failure
    means another agent instance is claiming it; stand down.
 
-3. `mv coordination/handoff/for-<your-class>/<note> coordination/active/<your-instance>/<note>`,
+3. `mv .trinoris/handoff/for-<your-class>/<note> .trinoris/active/<your-instance>/<note>`,
    then `rmdir` the claim directory.
 
 **Do not use `mv -n` as the claim.** Verified: `mv -n` is implemented as stat-then-rename
@@ -332,7 +346,7 @@ it is assumed.**
 
 Lightweight liveness signal for long operations. An agent instance holding a lock for an
 operation that cannot checkpoint every 5 minutes should write
-`coordination/heartbeat/<agent-instance>.json`:
+`.trinoris/heartbeat/<agent-instance>.json`:
 
 ```json
 {

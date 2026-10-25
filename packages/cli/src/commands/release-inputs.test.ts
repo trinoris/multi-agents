@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, copyFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -75,20 +76,36 @@ describe('release input integrity', () => {
   });
 
   it('keeps manifest validation, frozen install, audit, and tests ahead of release builds and publish', () => {
-    const script = readFileSync(join(ROOT, 'scripts/release.sh'), 'utf8');
+    const script = readFileSync(join(ROOT, 'scripts/release.mjs'), 'utf8');
     const gates = [
-      'node scripts/release-inputs.mjs',
-      'CI=true pnpm install --frozen-lockfile --ignore-scripts',
-      'pnpm audit --audit-level=high',
-      'pnpm test',
-      'lookup=$(npm view',
-      'pnpm "${BUILD_FILTERS[@]}" build',
-      'pnpm --filter "$package" publish',
+      'validateReleaseInputs(root)',
+      "gate('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts', '--ignore-pnpmfile'])",
+      "gate('pnpm', ['audit', '--audit-level=high', '--json'])",
+      "gate('pnpm', ['run', 'test', '--force'])",
+      "gate('npm', ['view'",
+      "gate('pnpm', ['run', 'build', '--force'])",
+      'smokeTarballs(report.artifacts',
+      "run('pnpm', ['publish', artifact.path",
     ].map(token => script.indexOf(token));
 
     expect(gates.every(position => position >= 0)).toBe(true);
     expect(gates).toEqual([...gates].sort((a, b) => a - b));
     const executableLines = script.split('\n').filter(line => !line.trimStart().startsWith('#')).join('\n');
     expect(executableLines).not.toMatch(/\bnpm\s+publish\b/);
+  });
+
+  it.each(['.pnpmfile.cjs', '.npmrc', 'extra-workspace', 'redirected-lock'])('SG-08 rejects unreviewed release input %s', kind => {
+    const root = mkdtempSync(join(tmpdir(), 'agent-release-inputs-'));
+    try {
+      for (const name of ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'turbo.json']) copyFileSync(join(ROOT, name), join(root, name));
+      for (const name of ['core', 'sdk', 'cli']) {
+        mkdirSync(join(root, 'packages', name), { recursive: true });
+        for (const file of ['package.json', 'tsup.config.ts']) copyFileSync(join(ROOT, 'packages', name, file), join(root, 'packages', name, file));
+      }
+      if (kind === 'extra-workspace') { mkdirSync(join(root, 'packages/attacker')); writeFileSync(join(root, 'packages/attacker/package.json'), '{}'); }
+      else if (kind === 'redirected-lock') writeFileSync(join(root, 'pnpm-lock.yaml'), readFileSync(join(root, 'pnpm-lock.yaml'), 'utf8').replace('resolution: {integrity:', 'resolution: {tarball: "https://example.invalid/package.tgz", integrity:'));
+      else writeFileSync(join(root, kind), kind === '.npmrc' ? 'registry=https://example.invalid/' : 'module.exports={hooks:{}}');
+      expect(validateReleaseInputs(root).length).toBeGreaterThan(0);
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

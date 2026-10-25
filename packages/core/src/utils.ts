@@ -4,6 +4,7 @@
  */
 
 import type { Lock, HandoffMetadata, Handoff } from './types.js';
+import { boundedText, duration, identifier, timestamp, validDate } from './validation.js';
 
 /**
  * Parse lease duration and calculate expiration time
@@ -12,15 +13,15 @@ export function calculateExpiration(
   durationMinutes: number,
   from: Date = new Date()
 ): Date {
-  return new Date(from.getTime() + durationMinutes * 60 * 1000);
+  return validDate(new Date(validDate(from).getTime() + duration(durationMinutes) * 60 * 1000));
 }
 
 /**
  * Check if a lock has expired
  */
 export function isLockExpired(lock: Lock, now: Date = new Date()): boolean {
-  const expiresAt = new Date(lock.expires_at);
-  return now > expiresAt;
+  const expiresAt = new Date(timestamp(lock.expires_at));
+  return validDate(now) > expiresAt;
 }
 
 /**
@@ -31,7 +32,8 @@ export function isInGracePeriod(
   gracePeriodMinutes: number,
   now: Date = new Date()
 ): boolean {
-  const expiresAt = new Date(lock.expires_at);
+  const expiresAt = new Date(timestamp(lock.expires_at));
+  duration(gracePeriodMinutes, 'grace', 0, 60); validDate(now);
   const gracePeriodEnd = new Date(expiresAt.getTime() + gracePeriodMinutes * 60 * 1000);
   return now > expiresAt && now <= gracePeriodEnd;
 }
@@ -40,8 +42,8 @@ export function isInGracePeriod(
  * Calculate time until lock expires
  */
 export function timeUntilExpiry(lock: Lock, now: Date = new Date()): number {
-  const expiresAt = new Date(lock.expires_at);
-  return Math.max(0, expiresAt.getTime() - now.getTime());
+  const expiresAt = new Date(timestamp(lock.expires_at));
+  return Math.max(0, expiresAt.getTime() - validDate(now).getTime());
 }
 
 /**
@@ -63,28 +65,39 @@ export function formatDuration(ms: number): string {
  * Parse handoff frontmatter from markdown
  */
 export function parseFrontmatter(content: string): HandoffMetadata | null {
-  const frontmatterMatch = content.match(/^---\n([\s\S]+?)\n---/);
+  if (typeof content !== 'string' || content.length > 262144) return null;
+  const frontmatterMatch = content.replace(/\r\n/g, '\n').match(/^---\n([\s\S]+?)\n---(?:\n|$)/);
   if (!frontmatterMatch) return null;
 
   const frontmatter = frontmatterMatch[1];
   const lines = frontmatter.split('\n');
-  const metadata: Partial<HandoffMetadata> = {};
+  const metadata: Record<string, string> = Object.create(null);
+  const allowed = ['from_class', 'from_instance', 'to_class', 'to_instance', 'scopes', 'status', 'priority', 'created'];
 
   for (const line of lines) {
     const match = line.match(/^(\w+):\s*(.+)$/);
     if (match) {
       const [, key, value] = match;
-      (metadata as any)[key] = value.trim();
-    }
+      if (!allowed.includes(key) || Object.hasOwn(metadata, key)) return null;
+      metadata[key] = value.trim();
+    } else if (line.trim()) return null;
   }
-
-  return metadata as HandoffMetadata;
+  try {
+    for (const field of ['from_class', 'from_instance', 'to_class', 'to_instance']) identifier(metadata[field], field);
+    timestamp(metadata.created);
+    const scopes = metadata.scopes?.split(',').map(v => v.trim());
+    if (!scopes?.length || scopes.length > 64 || new Set(scopes).size !== scopes.length) return null;
+    scopes.forEach(s => identifier(s, 'scope'));
+    if (!['ready', 'claimed', 'completed', 'failed'].includes(metadata.status) || (metadata.priority !== undefined && !['low', 'normal', 'high'].includes(metadata.priority))) return null;
+    return metadata as unknown as HandoffMetadata;
+  } catch { return null; }
 }
 
 /**
  * Parse full handoff note
  */
 export function parseHandoff(content: string): Handoff | null {
+  content = content.replace(/\r\n/g, '\n');
   const metadata = parseFrontmatter(content);
   if (!metadata) return null;
 
@@ -99,6 +112,7 @@ export function parseHandoff(content: string): Handoff | null {
   const assumedMatch = body.match(/## What I Assumed\n\n([\s\S]+?)(?=\n##|$)/);
   const instructionsMatch = body.match(/## Instructions\n\n([\s\S]+?)(?=\n##|$)/);
   const outcomeMatch = body.match(/## Outcome\n\n([\s\S]+?)$/);
+  if (!titleMatch || !contextMatch || !taskMatch || !verifiedMatch || !assumedMatch) return null;
 
   const extractBullets = (text: string): string[] => {
     return text
@@ -141,12 +155,14 @@ export function sortScopesByRegistry(scopes: string[], registry: string[]): stri
 /**
  * Generate agent instance ID
  */
-export function generateInstanceId(agentClass: string, suffix?: string): string {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 6);
-  const parts = [agentClass, timestamp, random];
-  if (suffix) parts.push(suffix);
-  return parts.join('-');
+export function generateInstanceId(agentClass: string, suffix?: string, random?: () => string): string {
+  identifier(agentClass, 'class');
+  // Injected by the Node CLI; core retains no Node imports.
+  const crypto = (globalThis as unknown as { crypto?: { randomUUID(): string } }).crypto;
+  const entropy = random ? random() : crypto?.randomUUID();
+  if (!entropy) throw new Error('A secure instance ID generator is required');
+  identifier(entropy, 'random ID'); if (suffix) identifier(suffix, 'suffix');
+  return identifier([agentClass, entropy, suffix].filter(Boolean).join('-'), 'instance');
 }
 
 /**

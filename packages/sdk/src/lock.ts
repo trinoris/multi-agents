@@ -1,220 +1,248 @@
 /**
- * Copyright 2026 TRINORIS
- * Licensed under the Apache License, Version 2.0 — see LICENSE.
- *
- * Filesystem lock engine. Implements specs/01 + specs/02 exactly, including the two
- * primitives that verification disproved:
- *
- *   - the claim is a `mkdir` marker, never `mv -n` (MA-T04)
- *   - breaking a lock requires the `<scope>.breaking` token (MA-T12)
- *
- * Every mutation goes through mkdir, the only primitive verified atomic on the target
- * filesystems. Nothing here uses flock.
+ * Copyright 2026 TRINORIS. Licensed under Apache-2.0 — see LICENSE.
+ * Protocol 3 serializes every mutation with mkdir. Guards are never reclaimed by age.
  */
-
-import { mkdirSync, writeFileSync, readFileSync, rmSync, renameSync, statSync, existsSync, mkdirSync as mkdirp } from 'node:fs';
+import fs from 'node:fs';
 import { join } from 'node:path';
-import {
-  type Lock,
-  isLockExpired,
-  isInGracePeriod,
-  calculateExpiration,
-  formatTimestamp,
-} from '@trinoris/agent-core';
+import { createHash, randomUUID } from 'node:crypto';
+import { type AgentIdentity, type Lock, ValidationError, boundedText, calculateExpiration, duration, identifier, isInGracePeriod, isLockExpired, parseHandoff, validateLock, object, validDate } from '@trinoris/agent-core';
+import { directory, jsonFile, readText, removeOwnedDirectory, safePath } from './filesystem.js';
+import { loadConfiguration } from './configuration.js';
 
-export interface LockPaths {
-  root: string;            // the coordination/ directory
-}
-
-export type LockState =
-  | { state: 'free' }
-  | { state: 'held'; lock: Lock; breakable: false }
-  | { state: 'expired'; lock: Lock; breakable: boolean }   // breakable once past grace
-  | { state: 'malformed'; breakable: boolean; dirMtime: Date };
-
+export interface LockPaths { root: string; clock?: () => Date }
+export type Lease = Lock & { schema_version: 2; generation: string };
+export type Failure = { ok: false; reason: 'busy' | 'held' | 'not-holder' | 'free' | 'token-held' | 'not-stale' | 'missing' | 'recipient-mismatch' | 'invalid-note' | 'destination-conflict' | 'claimed-by-other' | 'scope-held' | 'order-violation' };
+export type LockState = { state: 'free' } | { state: 'held'; lock: Lock; breakable: false } | { state: 'expired'; lock: Lock; breakable: boolean } | { state: 'malformed'; breakable: boolean; dirMtime: Date };
+const fail = (reason: Failure['reason']): Failure => ({ ok: false, reason });
+const now = (p: LockPaths) => validDate(p.clock?.() ?? new Date());
+const digest = (text: string) => createHash('sha256').update(text).digest('hex');
 const lockDir = (p: LockPaths, scope: string) => join(p.root, 'locks', `${scope}.lock`);
-const tokenDir = (p: LockPaths, scope: string) => join(p.root, 'locks', `${scope}.breaking`);
 const holderFile = (p: LockPaths, scope: string) => join(lockDir(p, scope), 'holder.json');
-
-/** mkdir as the atomic test-and-set. Returns false if it already exists. */
-function mkdirExclusive(path: string): boolean {
-  try {
-    mkdirSync(path);           // no recursive: must fail when present
-    return true;
-  } catch (e: any) {
-    if (e.code === 'EEXIST') return false;
-    throw e;
-  }
+function identity(i: AgentIdentity) { object(i, ['agent_instance', 'agent_class'], 'identity'); identifier(i?.agent_instance, 'instance'); identifier(i?.agent_class, 'class'); }
+function policy(p: LockPaths, scope: string) {
+  identifier(scope, 'scope');
+  if (!safePath(p.root)?.isDirectory()) throw new Error('Missing safe .trinoris root');
+  const config = loadConfiguration(p);
+  if (!config.scopes.registry.includes(scope)) throw new ValidationError('Unknown scope in registry');
+  return config;
 }
-
 function readHolder(p: LockPaths, scope: string): Lock | null {
-  try {
-    return JSON.parse(readFileSync(holderFile(p, scope), 'utf8')) as Lock;
-  } catch {
-    return null;              // absent or unparseable: both are "malformed"
+  const text = readText(p.root, holderFile(p, scope)); if (text === null) return null;
+  try { return validateLock(JSON.parse(text), scope); } catch (error) {
+    if (error instanceof SyntaxError || error instanceof ValidationError) return null;
+    throw error;
   }
 }
-
-/**
- * Spec 01: a lock is breakable when its lease is past expiry by more than the grace
- * period, or when it is malformed and the lock DIRECTORY's own mtime is older than
- * grace. The directory mtime is the only timestamp available when holder.json is
- * missing, which is exactly the two-step-acquire window.
- */
-export function inspect(p: LockPaths, scope: string, graceMinutes: number, now = new Date()): LockState {
-  const dir = lockDir(p, scope);
-  if (!existsSync(dir)) return { state: 'free' };
-
+function inspectUnderGuard(p: LockPaths, scope: string, grace: number, at: Date): LockState {
+  const stat = safePath(p.root, lockDir(p, scope)); if (!stat) return { state: 'free' };
+  if (!stat.isDirectory()) throw new Error('Lock must be a directory');
   const lock = readHolder(p, scope);
-  if (!lock) {
-    const dirMtime = statSync(dir).mtime;
-    const graceEnd = new Date(dirMtime.getTime() + graceMinutes * 60_000);
-    return { state: 'malformed', breakable: now > graceEnd, dirMtime };
-  }
-  if (!isLockExpired(lock, now)) return { state: 'held', lock, breakable: false };
-  return { state: 'expired', lock, breakable: !isInGracePeriod(lock, graceMinutes, now) };
+  if (!lock) return { state: 'malformed', breakable: at.getTime() > stat.mtimeMs + grace * 60_000, dirMtime: stat.mtime };
+  return isLockExpired(lock, at) ? { state: 'expired', lock, breakable: !isInGracePeriod(lock, grace, at) } : { state: 'held', lock, breakable: false };
 }
-
-export function acquire(
-  p: LockPaths,
-  scope: string,
-  identity: { agent_instance: string; agent_class: string },
-  leaseMinutes: number,
-  task?: string
-): { ok: true; lock: Lock } | { ok: false; reason: 'held'; state: LockState } {
-  if (!mkdirExclusive(lockDir(p, scope))) {
-    return { ok: false, reason: 'held', state: inspect(p, scope, 0) };
-  }
-  // Spec 02: write holder.json in the very next operation — this window is the
-  // malformed-lock case and must be kept to milliseconds.
-  const now = new Date();
-  const lock: Lock = {
-    ...identity,
-    scope,
-    acquired_at: formatTimestamp(now),
-    expires_at: formatTimestamp(calculateExpiration(leaseMinutes, now)),
-    ...(task ? { task } : {}),
-  };
-  writeFileSync(holderFile(p, scope), JSON.stringify(lock, null, 2) + '\n', 'utf8');
-  return { ok: true, lock };
+export function inspect(p: LockPaths, scope: string, graceMinutes: number, at = now(p)): LockState {
+  policy(p, scope); duration(graceMinutes, 'grace', 0, 60);
+  return inspectUnderGuard(p, scope, graceMinutes, at);
 }
-
-/** Spec 02: presence is not ownership. Only the agent_instance field is. */
-export function isHolder(p: LockPaths, scope: string, agentInstance: string): boolean {
-  return readHolder(p, scope)?.agent_instance === agentInstance;
+function marker(p: LockPaths, path: string, operation: Record<string, unknown>): boolean {
+  directory(p.root, join(path, '..')); safePath(p.root, path);
+  try { fs.mkdirSync(path, { mode: 0o700 }); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'EEXIST') return false; throw e; }
+  try { jsonFile(p.root, join(path, 'operation.json'), operation, true); }
+  catch (e) { removeOwnedDirectory(p.root, path); throw e; }
+  return true;
 }
-
-export function renew(
-  p: LockPaths, scope: string, agentInstance: string, leaseMinutes: number
-): { ok: true; lock: Lock } | { ok: false; reason: 'not-holder' } {
-  const current = readHolder(p, scope);
-  if (current?.agent_instance !== agentInstance) return { ok: false, reason: 'not-holder' };
-  const lock: Lock = { ...current, expires_at: formatTimestamp(calculateExpiration(leaseMinutes)) };
-  writeFileSync(holderFile(p, scope), JSON.stringify(lock, null, 2) + '\n', 'utf8');
-  return { ok: true, lock };
-}
-
-export function release(
-  p: LockPaths, scope: string, agentInstance: string
-): { ok: true } | { ok: false; reason: 'not-holder' | 'free' } {
-  if (!existsSync(lockDir(p, scope))) return { ok: false, reason: 'free' };
-  if (!isHolder(p, scope, agentInstance)) return { ok: false, reason: 'not-holder' };
-  rmSync(lockDir(p, scope), { recursive: true, force: true });
-  return { ok: true };
-}
-
-/**
- * Break a stale lock.
- *
- * Verified (MA-T12): judging a lock stale and then deleting-and-recreating it
- * double-breaks under load — 25/60 failures at N=8, 59/60 at N=32 — because once the
- * first breaker re-creates the lock the name is occupied again and a slightly later
- * breaker evicts the NEW holder. Rename-aside alone does not fix it either.
- *
- * The fix is this token: `mkdir <scope>.breaking` serialises breaking with the one
- * primitive proven atomic. A loser stands down without touching the lock.
- */
-export function breakLock(
-  p: LockPaths,
-  scope: string,
-  identity: { agent_instance: string; agent_class: string },
-  leaseMinutes: number,
-  graceMinutes: number,
-  reason: string
-): { ok: true; lock: Lock; evicted: Lock | null; incident: string }
-  | { ok: false; reason: 'token-held' | 'not-stale' | 'lost-race' } {
-  const token = tokenDir(p, scope);
-  if (!mkdirExclusive(token)) return { ok: false, reason: 'token-held' };
-
+function metadata(p: LockPaths, path: string): Record<string, any> | null {
+  const text = readText(p.root, join(path, 'operation.json'));
+  if (text === null) return null;
   try {
-    // Re-check after taking the token: the holder may have renewed meanwhile.
-    const state = inspect(p, scope, graceMinutes);
-    if (state.state === 'held' || (state.state !== 'free' && !state.breakable)) {
-      return { ok: false, reason: 'not-stale' };
-    }
-    const evicted = state.state === 'expired' ? state.lock : null;
-
-    const stamp = formatTimestamp().replace(/[:]/g, '');
-    mkdirp(join(p.root, 'incidents'), { recursive: true });
-    const incident = join(p.root, 'incidents', `${stamp}-broken-${scope}.md`);
-    writeFileSync(incident, [
-      `# Broken lock: ${scope}`, '',
-      `- **Broken by:** ${identity.agent_instance} (${identity.agent_class})`,
-      `- **At:** ${formatTimestamp()}`,
-      `- **Prior holder:** ${evicted ? `${evicted.agent_instance} (${evicted.agent_class})` : 'unknown — malformed lock, no holder.json'}`,
-      `- **Prior acquired_at:** ${evicted?.acquired_at ?? 'n/a'}`,
-      `- **Prior expires_at:** ${evicted?.expires_at ?? 'n/a'}`,
-      `- **Lock state:** ${state.state}`,
-      `- **Why judged dead:** ${reason}`, '',
-      '> The evicted agent may have left the tree mid-edit. Run `git status` and the',
-      '> relevant tests before building on what is here.', '',
-    ].join('\n'), 'utf8');
-
-    // Move the stale lock aside rather than deleting it: the evicted holder's metadata
-    // survives as evidence.
-    if (existsSync(lockDir(p, scope))) {
-      renameSync(lockDir(p, scope), join(p.root, 'incidents', `${stamp}-${scope}.stale`));
-    }
-    if (!mkdirExclusive(lockDir(p, scope))) return { ok: false, reason: 'lost-race' };
-
-    const now = new Date();
-    const lock: Lock = {
-      ...identity, scope,
-      acquired_at: formatTimestamp(now),
-      expires_at: formatTimestamp(calculateExpiration(leaseMinutes, now)),
-      task: `took over stale lock: ${reason}`,
-    };
-    writeFileSync(holderFile(p, scope), JSON.stringify(lock, null, 2) + '\n', 'utf8');
-
-    // Re-verify: anything that still slipped through is caught here.
-    if (!isHolder(p, scope, identity.agent_instance)) return { ok: false, reason: 'lost-race' };
-    return { ok: true, lock, evicted, incident };
-  } finally {
-    rmSync(token, { recursive: true, force: true });
-  }
+    const value = JSON.parse(text);
+    return value && typeof value === 'object' && !Array.isArray(value) && typeof value.operation_id === 'string' ? value : { invalid: true };
+  } catch { return { invalid: true }; }
 }
-
-/**
- * Claim a handoff note.
- *
- * Verified (MA-T04): `mv -n` is NOT an atomic claim — it is stat-then-rename in
- * userspace and returns success when it declines, so two racers both believe they
- * claimed (2 of 8 racers; 21/100 trials). The mkdir marker is the atomic step.
- */
-export function claim(
-  p: LockPaths, noteFilename: string, fromDir: string, toDir: string
-): { ok: true; path: string } | { ok: false; reason: 'claimed-by-other' | 'missing' } {
-  const marker = join(p.root, 'claims', `${noteFilename}.claim`);
-  mkdirp(join(p.root, 'claims'), { recursive: true });
-  if (!mkdirExclusive(marker)) return { ok: false, reason: 'claimed-by-other' };
-  try {
-    const src = join(p.root, fromDir, noteFilename);
-    if (!existsSync(src)) return { ok: false, reason: 'missing' };
-    const dest = join(p.root, toDir, noteFilename);
-    mkdirp(join(p.root, toDir), { recursive: true });
-    renameSync(src, dest);
-    return { ok: true, path: dest };
-  } finally {
-    rmSync(marker, { recursive: true, force: true });
+function cleanMarker(p: LockPaths, path: string, id: string) {
+  if (metadata(p, path)?.operation_id !== id) throw new Error('Marker generation changed; refusing cleanup');
+  removeOwnedDirectory(p.root, path);
+}
+function mutate<T>(p: LockPaths, owner: AgentIdentity, operation: string, body: (id: string) => T): T | Failure {
+  identity(owner); if (safePath(p.root, join(p.root, '.recovery'))) return fail('busy');
+  const path = join(p.root, '.mutation'); const id = randomUUID();
+  if (!marker(p, path, { schema_version: 2, operation_id: id, operation, owner, created_at: now(p).toISOString() })) return fail('busy');
+  try { return body(id); } finally { cleanMarker(p, path, id); }
+}
+function heldNames(p: LockPaths): string[] {
+  directory(p.root, join(p.root, 'locks'));
+  return fs.readdirSync(join(p.root, 'locks')).filter(n => n.endsWith('.lock')).map(n => identifier(n.slice(0, -5), 'scope'));
+}
+function compatible(p: LockPaths, scope: string, owner: AgentIdentity): Failure | null {
+  const registry = loadConfiguration(p).scopes.registry;
+  for (const held of heldNames(p)) {
+    if (!registry.includes(held)) throw new ValidationError('Retained scope outside registry; stop actors and migrate offline');
+    const lock = readHolder(p, held);
+    if (held === scope) continue;
+    if ((held === 'git' || scope === 'git') && lock?.agent_instance !== owner.agent_instance) return fail('scope-held');
+    if (lock?.agent_instance === owner.agent_instance && registry.indexOf(held) > registry.indexOf(scope)) return fail('order-violation');
   }
+  return null;
+}
+function publishLease(p: LockPaths, scope: string, owner: AgentIdentity, minutes: number, task?: string): Lease {
+  const at = now(p); const lock: Lease = { schema_version: 2, generation: randomUUID(), ...owner, scope, acquired_at: at.toISOString(), expires_at: calculateExpiration(minutes, at).toISOString(), ...(task ? { task } : {}) };
+  validateLock(lock, scope);
+  fs.mkdirSync(lockDir(p, scope), { mode: 0o700 });
+  jsonFile(p.root, holderFile(p, scope), lock, true); return lock;
+}
+export function recentIncidents(p: LockPaths, scope: string): string[] {
+  const cfg = policy(p, scope); const dir = join(p.root, 'incidents'); if (!safePath(p.root, dir)) return [];
+  return fs.readdirSync(dir).filter(n => /^[a-f0-9-]+\.(completed|failed)\.json$/.test(n)).filter(n => {
+    const r = JSON.parse(readText(p.root, join(dir, n))!);
+    return (r.scope === scope || r.action === 'marker-recovery') && Date.parse(r.at) >= now(p).getTime() - cfg.incidents.check_window_hours * 3600_000;
+  }).map(n => join(dir, n));
+}
+export function acquire(p: LockPaths, scope: string, owner: AgentIdentity, leaseMinutes: number, task?: string) {
+  policy(p, scope); identity(owner); duration(leaseMinutes); if (task !== undefined) boundedText(task, 'task');
+  return mutate(p, owner, 'acquire', () => {
+    directory(p.root, join(p.root, 'locks'));
+    if (safePath(p.root, lockDir(p, scope))) return fail('held');
+    const blocked = compatible(p, scope, owner); if (blocked) return blocked;
+    const incidents = recentIncidents(p, scope);
+    return { ok: true as const, lock: publishLease(p, scope, owner, leaseMinutes, task), recent_incidents: incidents };
+  });
+}
+export function isHolder(p: LockPaths, scope: string, instance: string, generation?: string, at = now(p)): boolean {
+  policy(p, scope); identifier(instance, 'instance');
+  if (!generation || safePath(p.root, join(p.root, '.mutation')) || safePath(p.root, join(p.root, '.recovery'))) return false;
+  identifier(generation, 'generation'); const lock = readHolder(p, scope);
+  return !!lock && lock.agent_instance === instance && lock.generation === generation && !isLockExpired(lock, at) && !safePath(p.root, join(p.root, '.mutation'));
+}
+export function renew(p: LockPaths, scope: string, instance: string, leaseMinutes: number, generation?: string) {
+  policy(p, scope); identifier(instance, 'instance'); duration(leaseMinutes);
+  if (!generation) return fail('not-holder'); identifier(generation, 'generation');
+  return mutate(p, { agent_instance: instance, agent_class: 'operation' }, 'renew', () => {
+    const lock = readHolder(p, scope);
+    if (!lock || lock.agent_instance !== instance || lock.generation !== generation || isLockExpired(lock, now(p))) return fail('not-holder');
+    const at = now(p);
+    const renewed = { ...lock, renewed_at: at.toISOString(), expires_at: calculateExpiration(leaseMinutes, at).toISOString() } as Lease;
+    validateLock(renewed, scope);
+    jsonFile(p.root, holderFile(p, scope), renewed); return { ok: true as const, lock: renewed };
+  });
+}
+export function release(p: LockPaths, scope: string, instance: string, generation?: string) {
+  policy(p, scope); identifier(instance, 'instance');
+  if (!generation) return fail('not-holder'); identifier(generation, 'generation');
+  return mutate(p, { agent_instance: instance, agent_class: 'operation' }, 'release', () => {
+    if (!safePath(p.root, lockDir(p, scope))) return fail('free');
+    const lock = readHolder(p, scope);
+    if (lock?.agent_instance !== instance || lock.generation !== generation) return fail('not-holder');
+    removeOwnedDirectory(p.root, lockDir(p, scope)); return { ok: true as const };
+  });
+}
+function record(p: LockPaths, id: string, stage: string, value: Record<string, unknown>) {
+  const path = join(p.root, 'incidents', `${id}.${stage}.json`);
+  jsonFile(p.root, path, { schema_version: 2, operation_id: id, stage, at: now(p).toISOString(), ...value }, true); return path;
+}
+export function breakLock(p: LockPaths, scope: string, owner: AgentIdentity, leaseMinutes: number, graceMinutes: number, reason: string) {
+  policy(p, scope); identity(owner); duration(leaseMinutes); duration(graceMinutes, 'grace', 0, 60); boundedText(reason, 'reason');
+  return mutate(p, owner, 'break', id => {
+    const token = join(p.root, 'locks', `${scope}.breaking`);
+    if (!marker(p, token, { operation_id: id, owner, created_at: now(p).toISOString() })) return fail('token-held');
+    let committed = false; let attempted = false;
+    try {
+      const state = inspectUnderGuard(p, scope, graceMinutes, now(p));
+      if (state.state === 'free' || state.state === 'held' || !state.breakable) return fail('not-stale');
+      const blocked = compatible(p, scope, owner); if (blocked) return blocked;
+      const evicted = state.state === 'expired' ? state.lock : null;
+      record(p, id, 'attempted', { scope, actor: owner, previous: evicted, reason }); attempted = true;
+      const archived = join(p.root, 'incidents', `${id}.stale`);
+      safePath(p.root, archived); fs.renameSync(lockDir(p, scope), archived);
+      const lock = publishLease(p, scope, owner, leaseMinutes, `takeover: ${reason}`.slice(0, 2048)); committed = true;
+      const incident = record(p, id, 'completed', { scope, actor: owner, previous: evicted, next: lock, reason, state_committed: true });
+      return { ok: true as const, lock, evicted, incident };
+    } catch (error) {
+      if (attempted) {
+        try { record(p, id, 'failed', { scope, actor: owner, reason, state_committed: committed, error: 'Takeover interrupted; inspect preserved state before retrying' }); } catch { /* Attempt record survives; never report completion. */ }
+      }
+      throw Object.assign(error as Error, { operation_id: id, state_committed: committed });
+    } finally { cleanMarker(p, token, id); }
+  });
+}
+export function claim(p: LockPaths, noteFilename: string, fromDir: string, toDir: string, owner?: AgentIdentity) {
+  identifier(noteFilename, 'note filename', 160); if (!noteFilename.endsWith('.md')) throw new ValidationError('Expected Markdown handoff filename');
+  if (!owner) throw new ValidationError('Claim requires identity; migrate to protocol 3'); identity(owner);
+  if (!/^handoff\/for-[A-Za-z0-9][A-Za-z0-9._-]*$/.test(fromDir)) throw new ValidationError('Invalid logical inbox');
+  identifier(fromDir.slice('handoff/for-'.length), 'inbox class');
+  const destDir = `active/${owner.agent_instance}`;
+  if (toDir !== destDir) throw new ValidationError('Destination must be active/<claimant-instance>');
+  const config = loadConfiguration(p); const source = join(p.root, fromDir, noteFilename); const dest = join(p.root, destDir, noteFilename);
+  const id = digest(`${fromDir}/${noteFilename}`); const receipt = join(p.root, destDir, `${id}.receipt.json`);
+  return mutate(p, owner, 'claim', operationId => {
+    const token = join(p.root, 'claims', `${id}.claim`);
+    if (!marker(p, token, { operation_id: operationId, owner, created_at: now(p).toISOString() })) return fail('claimed-by-other');
+    try {
+      const content = readText(p.root, source, 262144);
+      const receiptText = readText(p.root, receipt);
+      if (content === null) {
+        if (receiptText !== null) {
+          const prior = JSON.parse(receiptText); const saved = readText(p.root, dest, 262144);
+          if (saved !== null && prior.claimed_by === owner.agent_instance && prior.claimed_class === owner.agent_class && prior.digest === digest(saved) && prior.source === `${fromDir}/${noteFilename}`) return { ok: true as const, path: dest, digest: prior.digest as string, alreadyClaimed: true };
+        }
+        return fail('missing');
+      }
+      const note = parseHandoff(content); if (!note || note.metadata.status !== 'ready') return fail('invalid-note');
+      const m = note.metadata;
+      if ((m.to_class !== 'any' && m.to_class !== owner.agent_class) || (m.to_instance !== 'any' && m.to_instance !== owner.agent_instance) || (fromDir !== `handoff/for-${owner.agent_class}` && fromDir !== 'handoff/for-any')) return fail('recipient-mismatch');
+      const scopes = m.scopes.split(',').map(v => v.trim());
+      if (scopes.some(s => !config.scopes.registry.includes(s))) return fail('invalid-note');
+      if (scopes.some(s => safePath(p.root, lockDir(p, s)))) return fail('scope-held');
+      if (safePath(p.root, dest)) return fail('destination-conflict');
+      directory(p.root, join(p.root, destDir));
+      const hash = digest(content);
+      const prior = receiptText === null ? null : JSON.parse(receiptText);
+      if (prior && (prior.claimed_by !== owner.agent_instance || prior.claimed_class !== owner.agent_class || prior.digest !== hash || prior.source !== `${fromDir}/${noteFilename}`)) return fail('destination-conflict');
+      // All cooperating publishers hold .mutation through destination reservation/move.
+      if (!prior) jsonFile(p.root, receipt, { schema_version: 2, source: `${fromDir}/${noteFilename}`, digest: hash, claimed_by: owner.agent_instance, claimed_class: owner.agent_class, operation_id: operationId }, true);
+      fs.renameSync(source, dest);
+      return { ok: true as const, path: dest, digest: hash, alreadyClaimed: false };
+    } finally { cleanMarker(p, token, operationId); }
+  });
+}
+export function acquireMany(p: LockPaths, scopes: string[], owner: AgentIdentity, minutes: number) {
+  if (!scopes.length || scopes.length > 64 || new Set(scopes).size !== scopes.length) throw new ValidationError('Invalid scope batch');
+  const cfg = policy(p, scopes[0]); scopes.forEach(s => policy(p, s)); duration(minutes); identity(owner);
+  const ordered = [...scopes].sort((a, b) => cfg.scopes.registry.indexOf(a) - cfg.scopes.registry.indexOf(b));
+  return mutate(p, owner, 'acquire-many', () => {
+    const locks: Lease[] = [];
+    try {
+      for (const scope of ordered) {
+        const blocked = compatible(p, scope, owner);
+        if (blocked || safePath(p.root, lockDir(p, scope))) {
+          for (const held of locks) removeOwnedDirectory(p.root, lockDir(p, held.scope));
+          return blocked ?? fail('held');
+        }
+        locks.push(publishLease(p, scope, owner, minutes));
+      }
+      return { ok: true as const, locks };
+    } catch (e) { for (const held of locks) removeOwnedDirectory(p.root, lockDir(p, held.scope)); throw e; }
+  });
+}
+export function diagnose(p: LockPaths) {
+  const locations = ['.mutation', '.recovery'];
+  for (const dir of ['locks', 'claims']) if (safePath(p.root, join(p.root, dir))) {
+    for (const n of fs.readdirSync(join(p.root, dir))) if (n.endsWith('.breaking') || n.endsWith('.claim')) locations.push(`${dir}/${identifier(n, 'marker', 160)}`);
+  }
+  return locations.filter(n => safePath(p.root, join(p.root, n))).map(marker => ({ marker, metadata: metadata(p, join(p.root, marker)) }));
+}
+export function recoverMarker(p: LockPaths, target: string, expectedId: string | null, owner: AgentIdentity, reason: string, confirmedStopped = false) {
+  identity(owner); boundedText(reason, 'recovery reason');
+  if (!confirmedStopped) throw new ValidationError('Recovery requires confirmation that all affected actors are stopped');
+  if (!/^(?:\.mutation|locks\/[A-Za-z0-9][A-Za-z0-9._-]*\.breaking|claims\/[a-f0-9]{64}\.claim)$/.test(target)) throw new ValidationError('Invalid recovery marker');
+  if (expectedId !== null) identifier(expectedId, 'operation ID');
+  const guard = join(p.root, '.recovery'); const id = randomUUID();
+  if (!marker(p, guard, { operation_id: id, owner, created_at: now(p).toISOString() })) return fail('busy');
+  try {
+    const path = join(p.root, target); if (!safePath(p.root, path)) return fail('missing');
+    if ((metadata(p, path)?.operation_id ?? null) !== expectedId) return fail('not-holder');
+    record(p, id, 'attempted', { action: 'marker-recovery', marker: target, expected_id: expectedId, actor: owner, reason });
+    removeOwnedDirectory(p.root, path);
+    record(p, id, 'completed', { action: 'marker-recovery', marker: target, expected_id: expectedId, actor: owner, reason });
+    return { ok: true as const };
+  } finally { cleanMarker(p, guard, id); }
 }

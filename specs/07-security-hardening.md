@@ -4,15 +4,66 @@
 
 **Scope:** `packages/core`, `packages/sdk`, and `packages/cli`, including package manifests, release tooling, and the package tests/specifications.
 
-**Reviewed source:** `2757b3ba4f1e64c46e8dcb8d6f4042003abf7fa3`, with this document untracked in the working tree.
+**Reviewed baseline:** `2757b3ba4f1e64c46e8dcb8d6f4042003abf7fa3`. The review was committed as `9b48485`; protocol 2 hardening is implemented against that baseline.
 
-**Review type:** Static review, isolated runtime probes, and a refreshed dependency audit. All findings below remain open in the reviewed code. Requirements describe proposed hardening, not implemented behavior.
+**Review type:** Static review, isolated probes, and TDD implementation. The finding descriptions and source line references below preserve the original baseline evidence. Current controls and regression coverage are tracked separately; they must not be read as claims that the old behavior remains in the implementation.
+
+## Protocol 3 state-root migration
+
+The current CLI stores all local coordination state and its package-owned contract under
+`.trinoris/`. Setup adds the root-anchored `/.trinoris/` rule to the target repository's
+`.gitignore`; `verify` reports `gitignoreOk` and cannot return ready when that rule is absent.
+Generated `AGENTS.md` and Claude skill instructions point to `.trinoris/PROTOCOL.md` and
+name the inbox and active-note locations under `.trinoris/`. The CLI and SDK use this same
+root, and setup refuses to create a second top-level `coordination/` tree.
+
+This is a protocol 3 layout change because protocol 2 clients continue using
+`coordination/`. Migration requires stopping all earlier clients, archiving the old tree
+outside the checkout, selectively reviewing history, creating a fresh `.trinoris/`, then
+verifying before any protocol 3 client resumes. Do not restore active leases or mutation
+markers. Regression coverage is in CLI setup, verification, and installed CLI journey tests.
+
+## Protocol 2 implementation status
+
+All 17 findings have implementation controls and automated regressions. Consumer packages are prepared as `0.2.0`; publication is a separate operation. The implementation uses a package-owned versioned contract, a shared mutation guard, generation-aware leases, strict bounded records and paths, and explicit offline marker recovery.
+
+| Findings | Implemented control | Regression source |
+| --- | --- | --- |
+| MA-SEC-01, 04 | Contained logical paths; ancestor/link/type checks; bounded no-follow file reads; preflighted atomic setup writes | SDK `security.test.ts`, `policy.test.ts`; CLI `setup.security.test.ts` |
+| MA-SEC-02, 12 | One mkdir guard for all mutations; generated lease nonce; live-lease checks; safe expired cleanup | SDK `security.test.ts`, `policy.test.ts`, `concurrency.integration.test.ts`; CLI journey |
+| MA-SEC-03, 10 | Unique verifier arenas; owned cleanup; bounded yielding workers; timeout/abort and readiness results | CLI `verify.test.ts`, `cli.integration.test.ts` |
+| MA-SEC-05, 13 | Strict recipient/frontmatter validation; per-instance destination; collision preservation; claimant/digest receipts and interrupted-move retry | Core `security.test.ts`; SDK `security.test.ts`, `policy.test.ts` |
+| MA-SEC-06 | Schema, duration, timestamp, configuration, version, file size/type and I/O validation; no adoption of a legacy record as authority | Core `security.test.ts`; SDK `security.test.ts`, `policy.test.ts` |
+| MA-SEC-07 | Read-only diagnostics and exact-ID stopped-actor recovery; no time/PID stealing | SDK `policy.test.ts`, real crash integration; CLI recovery journey |
+| MA-SEC-08 | Turbo 2.9.14, esbuild 0.28.2 override, migrated Turbo tasks; frozen lock and retained audit | Release input/security tests; refreshed audit |
+| MA-SEC-09 | Bounded identifiers/text; controls rejected or escaped; structured incident JSON | Core validation/security tests; SDK input tests; CLI escaped output |
+| MA-SEC-11, 16 | OTP argv removed; clean source required for publication; actual pnpm pin; credential-isolated gates; parsed lock/source policy; exact tarball inspection/install/digests | Release input/security tests and `packed.integration.test.ts` |
+| MA-SEC-14 | Unique attempted/completed/failed events; preserved stale state; explicit state-committed result on failure | SDK `policy.test.ts` injected storage failures and takeover integration |
+| MA-SEC-15 | Registry validation, ordered all-or-none batches, reciprocal Git/edit guard; unsupported heartbeat explicitly disabled and rejected | SDK `policy.test.ts`; core configuration tests |
+| MA-SEC-17 | Installer ships complete contract; verifier checks its version/hash separately from filesystem atomicity | Setup/verifier tests; divergent-contract CLI journey |
+
+TDD evidence includes the initial **29 failing regressions**, four failing verifier regressions, four failing release-input cases, and the failing CLI/packed-consumer journeys before their fixes. Further failure tests exposed incomplete-marker recovery, interrupted receipt retry, invalid recorded duration, maximum-length takeover summary, and identity-field override defects before correction. Durable tests live beside the package entry points; temporary review probes are not used as the release gate.
+
+The `20261025T1430-embedded-protocol-missing-rules.md` handoff was checked against the evolving contract. No-spin, lease/grace, and guarded takeover were already present; the explicit unsafe-move warning and historical counterexamples were added after two failing regressions. Core `protocol.test.ts` and the empty-consumer setup regression now protect all four rules in the shipped contract. Historical 21/100, 25/60, and 59/60 results are attributed to the recorded v9fs primitive experiments, not presented as current SDK certification.
+
+Local validation ran on Linux / Node.js 24.22.1, and the clean installed-tarball consumer journey also passed on an explicitly verified Node.js 18.20.8 binary. A negative regression prevents falling back to the host runtime while asserting a different acceptance target. The CI matrix runs the full suite on Linux and Windows with Node.js 20 and 24, plus Node.js 18 consumer acceptance on Linux. The remote Windows matrix has not executed as part of this local session. Published runtime metadata retains the tested Node.js 18+ consumer contract; release tooling requires Node.js 20+.
+
+Validation commands and retained results:
+
+- `pnpm run test --force`: **111 tests passed** across 13 files (core 28, SDK 32, CLI 51), with no cached tasks. Includes real process races/crash recovery, CLI journeys, `.trinoris/` setup/ignore/readiness checks, and offline installation/inspection of all three tarballs.
+- TypeScript `--noEmit` checks for core, SDK, and CLI: passed, including test sources and declarations for release helpers.
+- `node scripts/release-inputs.mjs`: all three package manifests, reviewed workspace policy, and parsed lockfile passed.
+- Refreshed npm audit: zero informational, low, moderate, high, or critical advisories.
+- `bash scripts/release.sh --dry-run`: completed with `published: []`, three inspected `0.2.0` tarballs, audit/test evidence, and a 141-component CycloneDX inventory. A dry rehearsal does not publish or certify later source edits; the real release rebuilds and revalidates a clean committed snapshot.
+- `node scripts/consumer-runtime-smoke.mjs <node-18-binary> 18`: clean offline installed consumer passed on Node.js 18.20.8.
+
+Remaining limits are explicit: this cooperative filesystem protocol cannot authenticate local writers or fence an editor paused after a check. Directory-entry power-loss durability is filesystem-dependent. Heartbeat/daemon support is unavailable rather than silently enabled. A recovery guard abandoned during offline recovery requires operator inspection with all actors stopped; it is never stolen automatically. The high/critical audit threshold remains the required policy; moderate/low failure is not silently imposed as a new publishing policy.
 
 ## Executive summary
 
 The packages coordinate cooperating local agents through filesystem locks and handoff notes. The principal risks are unsafe filesystem path construction, lock mutation races, and a verifier that can recursively delete an existing user directory. The current identity fields are coordination metadata, not authentication. The packages must not be presented as a security boundary against another process that can write to the same checkout.
 
-| ID | Priority | Finding | Evidence in current code |
+| ID | Priority | Original finding | Evidence in reviewed baseline |
 | --- | --- | --- | --- |
 | MA-SEC-01 | P1 | Traversal escapes the coordination root | SDK `lock.ts:35-37,204-218`; reproduced out-of-root deletion |
 | MA-SEC-02 | P1 | Lock mutations can damage a successor | SDK `lock.ts:78-193`; reproduced three forced race interleavings |
@@ -52,7 +103,7 @@ The root README and CLI README already describe the cooperative boundary and the
 
 Runtime probes transpiled the current source into a temporary directory and ran on Linux / Node.js `v24.22.1`. All mutations stayed in disposable fixtures. Forced filesystem interleavings demonstrated successor overwrite/deletion and fresh-acquisition eviction; these prove reachable sequences, not their frequency under real multi-process scheduling. A real verifier run with one trial and two workers passed its atomicity probe while deleting a preexisting sentinel. An initial sandbox run timed out because child execution was restricted; that inconclusive attempt was not treated as a filesystem defect. Windows filesystem behavior was not executed in this review.
 
-The package tests were inspected but the full suite was not rerun: this change revises the review document. Existing SDK tests cover sequential lifecycles and simple handoff moves; verifier tests cover invalid options and mocked worker failures. They do not establish that the security findings are fixed. Historical primitive race results in spec 05 are not a substitute for regressions against the current SDK entry points.
+At the review stage, the package tests were inspected but not rerun. They covered sequential lifecycles and simple handoff moves, while verifier tests covered invalid options and mocked failures. Protocol 2 adds the current regressions listed above. Historical primitive race results in spec 05 are not a substitute for tests against the current SDK entry points.
 
 ## Detailed findings
 
@@ -340,6 +391,7 @@ Before closing this review, add tests for each item below and run the complete p
 | SG-07 | MA-SEC-09 | Control characters, Markdown, newlines, and extreme lengths are safely encoded in terminal and durable records. |
 | SG-08 | MA-SEC-08, 11, 16 | Audit findings meet the explicitly configured policy; exact tarballs are inspected/tested/digested; build steps cannot read publication credentials; OTP exposure matches the documented credential flow. |
 | SG-09 | MA-SEC-15, 17 | Registry, heartbeat, Git guard, and contract-readiness behavior matches implemented capabilities. A placeholder/divergent protocol cannot be reported ready. |
+| SG-10 | MA-SEC-17 | Setup writes all runtime files beneath `.trinoris/`, preserves existing `.gitignore` rules while adding `/.trinoris/`, refuses a parallel legacy root, and verify blocks readiness if the ignore rule is removed. |
 
 Each implementation must add its failing regression before the fix, following spec 05's TDD requirement. Use stable test IDs linked to the finding/gate; do not change historical MA-T IDs or count unit mocks as supported-filesystem race evidence. Closing a finding requires a passing regression against the shipped entry point and a review of its documented limitations.
 

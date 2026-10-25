@@ -56,7 +56,7 @@ describe('lease and duration utilities', () => {
 
   it('formats timestamps as ISO strings and generated IDs include the agent class', () => {
     expect(formatTimestamp(now)).toBe('2026-10-25T12:00:00.000Z');
-    expect(generateInstanceId('codex-gpt-6', 'session-a')).toMatch(/^codex-gpt-6-[a-z0-9]+-[a-z0-9]{4}-session-a$/);
+    expect(generateInstanceId('codex-gpt-6', 'session-a')).toMatch(/^codex-gpt-6-[a-f0-9-]{36}-session-a$/);
   });
 });
 

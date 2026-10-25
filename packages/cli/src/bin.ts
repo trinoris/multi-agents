@@ -1,200 +1,107 @@
 #!/usr/bin/env node
-/**
- * Copyright 2026 TRINORIS
- * Licensed under the Apache License, Version 2.0 — see LICENSE.
- *
- * trinoris-agent — coordination CLI.
- *
- * Exit codes are the contract for agents driving this from a shell:
- *   0  success
- *   1  usage or runtime error
- *   3  contended: the scope is held, or the note is already claimed. NOT an error —
- *      the caller should pick other work. Spec 01 forbids spinning on it.
- *   4  not the holder: the lease was lost. Stop writing immediately.
- */
-
-import { existsSync, readFileSync, readdirSync, mkdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { acquire, release, renew, inspect, isHolder, breakLock, claim, type LockPaths } from '@trinoris/agent-sdk';
+/** Copyright 2026 TRINORIS. Licensed under Apache-2.0 — see LICENSE. */
+import fs from 'node:fs';
+import { resolve, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { acquire, acquireMany, release, renew, inspect, isHolder, breakLock, claim, diagnose, recoverMarker, loadConfiguration, safePath } from '@trinoris/agent-sdk';
+import { generateInstanceId, terminalText, identifier } from '@trinoris/agent-core';
 import { setup } from './commands/setup.js';
 import { verify } from './commands/verify.js';
-import { generateInstanceId, formatDuration, timeUntilExpiry } from '@trinoris/agent-core';
 
-const DEFAULTS = { lease: 15, grace: 5 };
+const common = ['work-dir', 'agent-class', 'instance', 'json'];
+const allowed: Record<string, string[]> = {
+  setup: ['force', 'agent-classes', 'scopes'], verify: ['trials', 'concurrency'], status: ['scope'],
+  acquire: ['scope', 'task'], 'acquire-many': ['scopes'], check: ['scope', 'generation'],
+  renew: ['scope', 'generation'], release: ['scope', 'generation'], break: ['scope', 'reason'],
+  claim: ['note', 'from', 'to'], diagnose: [], recover: ['marker', 'operation', 'reason', 'confirm-stopped'],
+};
+const booleans = new Set(['json', 'force', 'confirm-stopped']);
+const usage = `trinoris-agent — cooperative local coordination, protocol 3
 
-function loadConfig(root: string) {
-  for (const p of [join(root, '.kiro', 'coordination.json'), join(root, 'coordination', 'config.json')]) {
+setup [--force]                      Install the package-owned protocol and configuration
+verify [--trials N --concurrency N]   Check protocol readiness and actual mkdir behavior
+status [--scope S]                   Inspect recorded leases
+acquire --scope S [--task T]         Acquire; retain the returned generation
+acquire-many --scopes api,tests      All-or-none registry-ordered acquisition
+check --scope S --generation G       Check the active instance and lease generation
+renew --scope S --generation G       Renew a still-live generation
+release --scope S --generation G     Remove only the matching generation
+break --scope S --reason R           Take over a stale lease; retain its new generation
+claim --note F                      Validate routing; move to active/<instance>/
+diagnose                            Read abandoned operation metadata
+recover --marker M --operation ID --reason R --confirm-stopped
+                                    Offline operator recovery, never automatic
+
+Common: --work-dir DIR --agent-class CLASS --instance ID --json
+Use the same explicit instance and generation for each lease operation.
+Exit: 0 success, 1 invalid/uncertain, 3 contention (do not spin), 4 lease lost.
+Locks are advisory; they do not authenticate agents or fence an uncoordinated writer.`;
+
+function parse(command: string, args: string[]) {
+  if (!Object.hasOwn(allowed, command)) throw new Error('Unknown command; use --help');
+  const opts: Record<string, string | true> = Object.create(null);
+  for (let i = 0; i < args.length; i++) {
+    const key = args[i].startsWith('--') ? args[i].slice(2) : '';
+    if (![...common, ...allowed[command]].includes(key) || Object.hasOwn(opts, key)) throw new Error('Unknown or duplicate option');
+    if (booleans.has(key)) { opts[key] = true; continue; }
+    const value = args[++i]; if (!value || value.startsWith('--')) throw new Error(`Missing value for --${key}`);
+    opts[key] = value;
+  }
+  return opts;
+}
+async function main() {
+  const [command, ...args] = process.argv.slice(2);
+  if (!command || command === '--help' || command === '-h') { console.log(usage); return; }
+  const opts = parse(command, args);
+  const required = (key: string): string => { const value = opts[key]; if (typeof value !== 'string') throw new Error(`--${key} is required`); return value; };
+  const value = (key: string, fallback: string) => typeof opts[key] === 'string' ? opts[key] as string : fallback;
+  const output = (data: unknown, readable?: string) => console.log(opts.json ? JSON.stringify(data) : terminalText(readable ?? JSON.stringify(data)));
+  const workDir = resolve(value('work-dir', process.cwd())); const paths = { root: join(workDir, '.trinoris') };
+  const agentClass = value('agent-class', 'claude-opus-5');
+  const instance = opts.instance ? required('instance') : generateInstanceId(agentClass, undefined, randomUUID);
+  identifier(instance, 'instance'); const owner = { agent_class: agentClass, agent_instance: instance };
+  if (command === 'setup') {
+    const result = setup({ workDir, force: opts.force === true, ...(opts.scopes ? { scopes: required('scopes').split(',') } : {}), ...(opts['agent-classes'] ? { agentClasses: required('agent-classes').split(',') } : {}) });
+    output(result); return;
+  }
+  if (command === 'verify') {
+    const controller = new AbortController(); const abort = () => controller.abort();
+    process.once('SIGINT', abort); process.once('SIGTERM', abort);
     try {
-      const c = JSON.parse(readFileSync(p, 'utf8'));
-      return {
-        lease: c?.scopes?.lease_duration_minutes ?? DEFAULTS.lease,
-        grace: c?.scopes?.grace_period_minutes ?? DEFAULTS.grace,
-        registry: c?.scopes?.registry as string[] | undefined,
-      };
-    } catch { /* try next */ }
+      const result = await verify(workDir, Number(value('trials', '50')), Number(value('concurrency', '8')), { signal: controller.signal });
+      output(result); if (!result.ready) process.exitCode = 1;
+    } finally { process.off('SIGINT', abort); process.off('SIGTERM', abort); }
+    return;
   }
-  return { ...DEFAULTS, registry: undefined };
+  if (command === 'diagnose') { output(diagnose(paths)); return; }
+  if (command === 'recover') {
+    const id = required('operation');
+    const result = recoverMarker(paths, required('marker'), id === 'unknown' ? null : id, owner, required('reason'), opts['confirm-stopped'] === true);
+    output(result); if (!result.ok) process.exitCode = result.reason === 'busy' ? 3 : 1; return;
+  }
+  const config = loadConfiguration(paths, true);
+  const minutes = config.scopes.lease_duration_minutes; const grace = config.scopes.grace_period_minutes;
+  if (command === 'status') {
+    const dir = join(paths.root, 'locks'); if (!safePath(paths.root, dir)?.isDirectory()) throw new Error('Missing locks directory');
+    const scopes = opts.scope ? [required('scope')] : fs.readdirSync(dir).filter(n => n.endsWith('.lock')).map(n => n.slice(0, -5));
+    output(scopes.map(scope => ({ scope, ...inspect(paths, scope, grace) }))); return;
+  }
+  if (command === 'check') {
+    const active = isHolder(paths, required('scope'), instance, required('generation'));
+    output({ ok: active }, active ? 'Active lease confirmed' : 'Lease lost or uncertain; stop writing');
+    if (!active) process.exitCode = 4; return;
+  }
+  let result;
+  switch (command) {
+    case 'acquire': result = acquire(paths, required('scope'), owner, minutes, opts.task ? required('task') : undefined); break;
+    case 'acquire-many': result = acquireMany(paths, required('scopes').split(','), owner, minutes); break;
+    case 'renew': result = renew(paths, required('scope'), instance, minutes, required('generation')); break;
+    case 'release': result = release(paths, required('scope'), instance, required('generation')); break;
+    case 'break': result = breakLock(paths, required('scope'), owner, minutes, grace, required('reason')); break;
+    case 'claim': result = claim(paths, required('note'), value('from', `handoff/for-${agentClass}`), value('to', `active/${instance}`), owner); break;
+    default: throw new Error('Unsupported command');
+  }
+  output(result);
+  if (!result.ok) process.exitCode = result.reason === 'not-holder' ? 4 : ['busy', 'held', 'token-held', 'scope-held', 'claimed-by-other'].includes(result.reason) ? 3 : 1;
 }
-
-function arg(name: string, fallback?: string): string | undefined {
-  const i = process.argv.indexOf(`--${name}`);
-  return i > -1 ? process.argv[i + 1] : fallback;
-}
-
-function die(msg: string, code = 1): never {
-  console.error(msg);
-  process.exit(code);
-}
-
-const USAGE = `trinoris-agent — multi-agent coordination
-
-  setup   [--force]                       scaffold coordination/ and bind agent tools
-  verify  [--trials N] [--concurrency N]  adoption gate: is mkdir atomic here?
-  status  [--scope S]                     show lock state (all scopes, or one)
-  acquire  --scope S [--task T]           take a scope lock
-  renew    --scope S                      push out the lease
-  release  --scope S                      give the lock back
-  check    --scope S                      am I still the holder? (exit 4 if not)
-  break    --scope S --reason R           take over a stale lock (token-guarded)
-  claim    --note F --from D --to D       atomically claim a handoff note
-
-Common: --work-dir DIR  --agent-class CLASS  --instance ID
-Exit: 0 ok · 1 error · 3 contended · 4 not holder`;
-
-const cmd = process.argv[2];
-const workDir = resolve(arg('work-dir', process.cwd())!);
-const paths: LockPaths = { root: join(workDir, 'coordination') };
-const cfg = loadConfig(workDir);
-const agentClass = arg('agent-class', 'claude')!;
-const instance = arg('instance') ?? generateInstanceId(agentClass);
-const identity = { agent_instance: instance, agent_class: agentClass };
-
-if (!cmd || cmd === '--help' || cmd === '-h') { console.log(USAGE); process.exit(0); }
-
-// setup runs before the tree exists; verify reports on its absence rather than dying.
-if (cmd === 'setup') {
-  const r = setup({
-    workDir,
-    force: process.argv.includes('--force'),
-    ...(arg('agent-classes') ? { agentClasses: arg('agent-classes')!.split(',') } : {}),
-    ...(arg('scopes') ? { scopes: arg('scopes')!.split(',') } : {}),
-  });
-  for (const c of r.created) console.log(`  created  ${c}`);
-  for (const s of r.skipped) console.log(`  kept     ${s} (exists — use --force to overwrite)`);
-  console.log(`\nNext: trinoris-agent verify --work-dir ${workDir}`);
-  process.exit(0);
-}
-
-if (cmd === 'verify') {
-  // async IIFE: top-level await would break the CJS build output
-  void (async () => {
-  const trials = Number(arg('trials', '50'));
-  const conc = Number(arg('concurrency', '8'));
-  if (!Number.isInteger(trials) || trials < 1) die('--trials must be a positive integer');
-  if (!Number.isInteger(conc) || conc < 2) die('--concurrency must be an integer of at least 2');
-  console.log(`Racing ${conc} processes x ${trials} trials...`);
-  const r = await verify(workDir, trials, conc);
-  console.log(`  filesystem      ${r.filesystem}`);
-  console.log(`  structure       ${r.structureOk ? 'ok' : 'INCOMPLETE'}`);
-  console.log(`  config          ${r.configOk ? 'ok' : 'MISSING'}`);
-  if (r.atomicityOk === null) console.log('  mkdir atomicity NOT CHECKED (probe failed)');
-  else if (r.atomicityOk) console.log(`  mkdir atomicity ATOMIC (${r.totalWinners}/${r.trials} trials, exactly one winner each)`);
-  else console.log(`  mkdir atomicity NOT ATOMIC (${r.badTrials} bad trials)`);
-  for (const n of r.notes) console.log(`  note: ${n}`);
-  if (r.atomicityOk === null) {
-    console.error('\nPROBE FAILED: the verifier could not determine mkdir atomicity in this environment.');
-    process.exit(1);
-  }
-  if (!r.atomicityOk) {
-    console.error('\nGATE FAILED: do not install the protocol in this tree.');
-    process.exit(1);
-  }
-  if (!r.structureOk || !r.configOk) { console.error('\nSetup incomplete — run: trinoris-agent setup'); process.exit(1); }
-  console.log('\nGate passed.');
-  process.exit(0);
-  })();
-} else {
-
-if (!existsSync(paths.root)) die(`No coordination/ in ${workDir}. Run setup first.`);
-
-const scope = () => arg('scope') ?? die('--scope is required');
-
-switch (cmd) {
-  case 'status': {
-    const one = arg('scope');
-    const dir = join(paths.root, 'locks');
-    mkdirSync(dir, { recursive: true });
-    const scopes = one
-      ? [one]
-      : [...new Set(readdirSync(dir).filter(d => d.endsWith('.lock')).map(d => d.replace(/\.lock$/, '')))];
-    if (!scopes.length) { console.log('no locks held'); break; }
-    for (const s of scopes) {
-      const st = inspect(paths, s, cfg.grace);
-      if (st.state === 'free') { console.log(`${s}: free`); }
-      else if (st.state === 'held') {
-        console.log(`${s}: HELD by ${st.lock.agent_instance} (${st.lock.agent_class}) — expires in ${formatDuration(timeUntilExpiry(st.lock))}${st.lock.task ? ` — ${st.lock.task}` : ''}`);
-      } else if (st.state === 'expired') {
-        console.log(`${s}: EXPIRED (held by ${st.lock.agent_instance})${st.breakable ? ' — breakable' : ' — within grace, do not break'}`);
-      } else {
-        console.log(`${s}: MALFORMED (no readable holder.json, dir mtime ${st.dirMtime.toISOString()})${st.breakable ? ' — breakable' : ' — within grace, do not break'}`);
-      }
-    }
-    break;
-  }
-  case 'acquire': {
-    const s = scope();
-    if (cfg.registry && !cfg.registry.includes(s)) die(`Unknown scope "${s}". Registry: ${cfg.registry.join(', ')}`);
-    const r = acquire(paths, s, identity, cfg.lease, arg('task'));
-    if (!r.ok) {
-      const st = inspect(paths, s, cfg.grace);
-      const who = st.state === 'held' || st.state === 'expired' ? st.lock.agent_instance : 'unknown';
-      console.error(`contended: ${s} is held by ${who}. Do not wait — pick other work or write a handoff.`);
-      process.exit(3);
-    }
-    console.log(`${instance} acquired ${s} until ${r.lock.expires_at}`);
-    break;
-  }
-  case 'renew': {
-    const r = renew(paths, scope(), instance, cfg.lease);
-    if (!r.ok) die(`not the holder of ${scope()} — stop writing and re-acquire`, 4);
-    console.log(`renewed ${scope()} until ${r.lock.expires_at}`);
-    break;
-  }
-  case 'release': {
-    const r = release(paths, scope(), instance);
-    if (!r.ok) die(r.reason === 'free' ? `${scope()} was not held` : `not the holder of ${scope()}`, r.reason === 'free' ? 1 : 4);
-    console.log(`released ${scope()}`);
-    break;
-  }
-  case 'check': {
-    if (!isHolder(paths, scope(), instance)) die(`NOT holder of ${scope()} — lease lost, stop writing`, 4);
-    console.log(`still holder of ${scope()}`);
-    break;
-  }
-  case 'break': {
-    const s = scope();
-    const reason = arg('reason') ?? die('--reason is required: breaking a lock must be explained');
-    const r = breakLock(paths, s, identity, cfg.lease, cfg.grace, reason);
-    if (!r.ok) {
-      if (r.reason === 'token-held') { console.error(`another agent is already breaking ${s} — stand down`); process.exit(3); }
-      if (r.reason === 'not-stale') { console.error(`${s} is not stale (holder may have renewed) — do not break`); process.exit(3); }
-      die(`lost the race while breaking ${s} — re-read state before acting`, 4);
-    }
-    console.log(`broke ${s} (evicted ${r.evicted?.agent_instance ?? 'malformed lock'}) — incident: ${r.incident}`);
-    console.log('The evicted agent may have left the tree mid-edit: check git status and run tests.');
-    break;
-  }
-  case 'claim': {
-    const note = arg('note') ?? die('--note is required');
-    const r = claim(paths, note, arg('from', 'handoff/for-' + agentClass)!, arg('to', 'active')!);
-    if (!r.ok) {
-      if (r.reason === 'claimed-by-other') { console.error(`${note} is being claimed by another agent`); process.exit(3); }
-      die(`${note} not found`);
-    }
-    console.log(`claimed ${note} -> ${r.path}`);
-    break;
-  }
-  default:
-    die(`Unknown command "${cmd}"\n\n${USAGE}`);
-}
-}
+void main().catch(error => { console.error(terminalText(error instanceof Error ? error.message : error)); process.exitCode = 1; });

@@ -1,6 +1,6 @@
 {
   "name": "@trinoris/agent-cli",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Multi-agent coordination CLI \u2014 scope locks, handoffs, stale-lock recovery",
   "type": "module",
   "bin": {
@@ -51,5 +51,8 @@
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
     "access": "public"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

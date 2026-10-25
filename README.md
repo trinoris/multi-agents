@@ -39,18 +39,29 @@ Coordination protocol for multiple coding agents sharing one working tree, organ
 
 **Installation:**
 ```bash
-cd trinoris-agent
-pip install -e .
-trinoris-agent setup     # Initialize in any project
-trinoris-agent verify    # Verify atomicity and structure
+pnpm install
+pnpm --filter @trinoris/agent-cli build
+
+node packages/cli/dist/bin.js setup    # scaffold coordination/ in any project
+node packages/cli/dist/bin.js verify   # the adoption gate: is mkdir atomic here?
 ```
+
+Once published, this becomes `pnpm add -g @trinoris/agent-cli` and the command is simply
+`trinoris-agent`. The `workspace:*` dependencies cannot resolve outside the workspace, so
+a global install is not possible before publishing.
+
+The Python CLI (`trinoris-agent/`, pip package `trinoris-coordination`) is **removed**. It
+only ever had `setup` and `verify`, both of which the Node CLI now covers, and keeping it
+meant two generators of agent instructions — which drift. Spec 04 names that as worse than
+having no protocol, because each agent then follows its own copy while believing it is
+coordinating.
 
 See [`PHASE-0-COMPLETE.md`](PHASE-0-COMPLETE.md) and [`PHASE-1-STARTED.md`](PHASE-1-STARTED.md) for full details.
 
 ### Quick Links
 
 - [Specifications](specs/) — 6 complete specs
-- [CLI Documentation](trinoris-agent/README.md) — Installation & usage
+- [CLI interface spec](specs/06-cli-interface.md) — commands and exit codes
 - [Phase 0 Summary](PHASE-0-COMPLETE.md) — CLI implementation
 - [Phase 1 Summary](PHASE-1-STARTED.md) — First handoff validation
 - [Implementation Plan](IMPLEMENTATION-PLAN.md) — Roadmap

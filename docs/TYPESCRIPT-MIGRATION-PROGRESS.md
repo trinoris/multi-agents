@@ -81,7 +81,7 @@ trinoris-multi-agents/
 ├── specs/                     Existing specifications (kept)
 ├── tests/                     Existing tests (kept)
 ├── coordination/              Protocol state (kept)
-└── trinoris-agent/           Python CLI (kept for migration)
+└── (trinoris-agent/)         Python CLI — REMOVED, see below
 ```
 
 ## Files Created (This Session)
@@ -223,3 +223,33 @@ trinoris-multi-agents/
 
 **Last updated:** 2026-10-25T13:43:26Z  
 **Next milestone:** CLI package built and tested
+
+## Migration complete (2026-10-25)
+
+| Package | State |
+| --- | --- |
+| `@trinoris/agent-core` | pure predicates, no Node dependencies |
+| `@trinoris/agent-sdk` | the filesystem lock engine — acquire, renew, release, check, break, claim |
+| `@trinoris/agent-cli` | thin shell over the SDK, plus setup and verify |
+| `@trinoris/agent-codex` | not started |
+
+The Python CLI is **removed**, and its pip package `trinoris-coordination` uninstalled.
+
+Two things that had to be handled rather than assumed:
+
+- Both packages installed a console script named `trinoris-agent`, and the Python one won
+  on PATH. The generated `AGENTS.md` told agents to run `trinoris-agent acquire`, which
+  the Python build answered with argparse's bare `invalid choice`. Generated instructions
+  have to be validated against what is actually reachable on PATH, not against what the
+  package you just wrote supports.
+- Deleting the source while the pip package stayed installed would have left the PATH
+  entry failing with `ModuleNotFoundError` — worse than before. Removal and uninstall are
+  one step, not two.
+
+Until publishing, `trinoris-agent` is a wrapper in `~/.local/bin` pointing at
+`packages/cli/dist/bin.js` (override with `TRINORIS_AGENT_CLI`). It is a dev convenience
+that `pnpm add -g @trinoris/agent-cli` replaces.
+
+Historical references to the Python CLI in `docs/archive/`, `PHASE-0-COMPLETE.md`,
+`tests/MA-T06-RESULTS.md` and `coordination/archive/` are left as written. They are records
+of what happened, not claims about the current state.

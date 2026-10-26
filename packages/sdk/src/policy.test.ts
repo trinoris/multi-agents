@@ -99,6 +99,87 @@ describe('SG-06 recovery and truthful incidents', () => {
 });
 
 describe('SG-05 interrupted handoff publication', () => {
+  const protocol3Handoff = (status = 'in-progress') => `---
+from_instance: claude-b
+from_class: claude
+to_class: codex
+to_instance: any
+scopes: [api]
+locks_released: true
+---
+
+# Context Handoff
+
+Updated: 2026-10-25 14:02 UTC
+Task: Continue API validation
+Status: ${status}
+Branch: main
+Base commit: abc1234
+
+## Goal
+
+Add request validation.
+
+## User Constraints
+
+Keep the API compatible.
+
+## Current State
+
+Boundary tests remain.
+
+## Changes
+
+No changes yet.
+
+## Decisions
+
+No decisions.
+
+## Verification
+
+No tests run.
+
+## Failed Attempts
+
+Nothing.
+
+## Blockers and Unknowns
+
+Nothing.
+
+## Next Actions
+
+1. Add the tests.
+
+## Resume Instructions
+
+1. Read the route code.
+
+## References
+
+- API spec
+`;
+
+  it('claims protocol 3 handoffs for all non-complete body statuses', () => {
+    const p = fixture();
+    for (const status of ['in-progress', 'blocked', 'ready-for-review']) {
+      const filename = `${status}.md`; const source = join(p.root, 'handoff/for-codex', filename);
+      fs.writeFileSync(source, protocol3Handoff(status));
+      const result = claim(p, filename, 'handoff/for-codex', 'active/codex-a', a);
+      expect(result.ok).toBe(true);
+      expect(fs.existsSync(source)).toBe(false);
+      expect(fs.existsSync(join(p.root, 'active/codex-a', filename))).toBe(true);
+    }
+  });
+
+  it('does not claim a protocol 3 handoff marked complete', () => {
+    const p = fixture(); const source = join(p.root, 'handoff/for-codex/complete.md');
+    fs.writeFileSync(source, protocol3Handoff('complete'));
+    expect(claim(p, 'complete.md', 'handoff/for-codex', 'active/codex-a', a)).toMatchObject({ ok: false, reason: 'invalid-note' });
+    expect(fs.existsSync(source)).toBe(true);
+  });
+
   it('can safely finish its own matching receipt after an interrupted move', () => {
     const p = fixture(); const source = join(p.root, 'handoff/for-codex/task.md');
     const content = '---\nfrom_class: claude\nfrom_instance: sender\nto_class: codex\nto_instance: codex-a\nscopes: api\nstatus: ready\ncreated: 2026-10-25T10:00:00.000Z\n---\n\n# Task\n\n## Context\n\nContext\n\n## Task\n\nTask\n\n## What I Verified\n\n- tests\n\n## What I Assumed\n\n- nothing\n';

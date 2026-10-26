@@ -32,6 +32,7 @@ describe('SG-01 safe setup', () => {
     expect(readFileSync(join(workDir, 'AGENTS.md'), 'utf8')).toContain('.trinoris/handoff/for-<class>/');
     expect(readFileSync(join(workDir, '.claude/skills/agent-handoff/SKILL.md'), 'utf8')).toContain('.trinoris/PROTOCOL.md');
     expect(readFileSync(join(workDir, '.claude/skills/agent-handoff/SKILL.md'), 'utf8')).toContain('.trinoris/active/<instance>/');
+    expect(readFileSync(join(workDir, 'AGENTS.md'), 'utf8')).toContain('locks_released: true');
     const config = JSON.parse(readFileSync(join(workDir, '.trinoris/config.json'), 'utf8'));
     expect(config.protocol_version).toBe('3'); expect(config.heartbeat.enabled).toBe(false);
     expect(readFileSync(join(workDir, '.gitignore'), 'utf8')).toContain('/.trinoris/');

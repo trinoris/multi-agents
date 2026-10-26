@@ -50,7 +50,7 @@ Local validation ran on Linux / Node.js 24.22.1, and the clean installed-tarball
 
 Validation commands and retained results:
 
-- `pnpm run test --force`: **111 tests passed** across 13 files (core 28, SDK 32, CLI 51), with no cached tasks. Includes real process races/crash recovery, CLI journeys, `.trinoris/` setup/ignore/readiness checks, and offline installation/inspection of all three tarballs.
+- `pnpm run test --force`: **120 tests passed** across 13 files (core 35, SDK 34, CLI 51), with no cached tasks. Includes protocol 3 handoff parsing/claim rules, real process races/crash recovery, CLI journeys, `.trinoris/` setup/ignore/readiness checks, and offline installation/inspection of all three tarballs.
 - TypeScript `--noEmit` checks for core, SDK, and CLI: passed, including test sources and declarations for release helpers.
 - `node scripts/release-inputs.mjs`: all three package manifests, reviewed workspace policy, and parsed lockfile passed.
 - Refreshed npm audit: zero informational, low, moderate, high, or critical advisories.

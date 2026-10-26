@@ -123,21 +123,17 @@ same bytes through `C:\` / `/mnt/c`. Therefore:
 
 ## What is version-controlled
 
-`.trinoris/` is split, not ignored wholesale:
+The entire `.trinoris/` directory is ignored. It contains working-tree-local coordination
+state: configuration, the installed contract, leases, in-flight handoffs, active notes,
+archives, and incidents. `setup` adds the root-anchored `/.trinoris/` rule to the consuming
+repository's `.gitignore`. Archive and incident files are local history, not a shared audit
+trail across clones; use a separately governed durable store if cross-clone retention is
+required.
 
-| Path | Tracked? | Why |
-| --- | --- | --- |
-| `archive/` | **yes** | The record of who did what and why. Spec 03 calls it the project's memory |
-| `incidents/*.md` | **yes** | Audit trail for every lock that changed hands |
-| `locks/`, `claims/`, `heartbeat/`, `active/` | no | Ephemeral runtime state |
-| `handoff/**/*.md` | no | In-flight messages, local to one working tree |
-| `incidents/*.stale/` | no | Raw evidence dirs; the `.md` record is what matters |
-
-**A committed lock is a phantom lock.** On a fresh clone `locks/engine.lock` would exist,
-held by an agent that is not running. If it was committed inside its 15-minute lease, the
-protocol forbids breaking it — so the scope is blocked on every clone, for no reason and
-with no live holder to ask. Inbox directories are kept (via `.gitkeep`) so an agent can
-work in a fresh clone without running `setup` first.
+**A committed lock is a phantom lock.** A fresh clone would show a lease held by an agent
+that is not running. A top-level ignore rule also prevents protocol copies from being
+mistaken for shared coordination across clones. Standard agent entry points such as
+`AGENTS.md` and installed skill files remain outside `.trinoris/` so tools can discover them.
 
 ## Scopes
 

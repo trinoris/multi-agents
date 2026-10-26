@@ -72,24 +72,41 @@ export function parseFrontmatter(content: string): HandoffMetadata | null {
   const frontmatter = frontmatterMatch[1];
   const lines = frontmatter.split('\n');
   const metadata: Record<string, string> = Object.create(null);
-  const allowed = ['from_class', 'from_instance', 'to_class', 'to_instance', 'scopes', 'status', 'priority', 'created'];
+  const allowed = ['from_class', 'from_instance', 'to_class', 'to_instance', 'scopes', 'status', 'priority', 'created', 'locks_released'];
 
   for (const line of lines) {
-    const match = line.match(/^(\w+):\s*(.+)$/);
+    const match = line.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.+)$/);
     if (match) {
-      const [, key, value] = match;
+      const [, key, raw] = match;
       if (!allowed.includes(key) || Object.hasOwn(metadata, key)) return null;
-      metadata[key] = value.trim();
+      metadata[key] = raw.trim().replace(/\s+#.*$/, '').trim();
     } else if (line.trim()) return null;
   }
   try {
+    const protocol3 = Object.hasOwn(metadata, 'locks_released');
+    const required = ['from_class', 'from_instance', 'to_class', 'to_instance', 'scopes', ...(protocol3 ? ['locks_released'] : ['status', 'created'])];
+    if (required.some(field => !Object.hasOwn(metadata, field))) return null;
     for (const field of ['from_class', 'from_instance', 'to_class', 'to_instance']) identifier(metadata[field], field);
-    timestamp(metadata.created);
-    const scopes = metadata.scopes?.split(',').map(v => v.trim());
+    if (protocol3) {
+      if (Object.hasOwn(metadata, 'status') || Object.hasOwn(metadata, 'created') || Object.hasOwn(metadata, 'priority') || metadata.locks_released !== 'true') return null;
+    } else {
+      timestamp(metadata.created);
+      if (!['ready', 'claimed', 'completed', 'failed'].includes(metadata.status) || (metadata.priority !== undefined && !['low', 'normal', 'high'].includes(metadata.priority))) return null;
+    }
+    const rawScopes = metadata.scopes;
+    const scopes = rawScopes.startsWith('[') && rawScopes.endsWith(']')
+      ? rawScopes.slice(1, -1).split(',').map(v => v.trim())
+      : rawScopes.split(',').map(v => v.trim());
     if (!scopes?.length || scopes.length > 64 || new Set(scopes).size !== scopes.length) return null;
     scopes.forEach(s => identifier(s, 'scope'));
-    if (!['ready', 'claimed', 'completed', 'failed'].includes(metadata.status) || (metadata.priority !== undefined && !['low', 'normal', 'high'].includes(metadata.priority))) return null;
-    return metadata as unknown as HandoffMetadata;
+    if (scopes.some(s => !s)) return null;
+    return {
+      from_class: metadata.from_class, from_instance: metadata.from_instance,
+      to_class: metadata.to_class, to_instance: metadata.to_instance,
+      scopes: scopes.join(','), status: protocol3 ? 'ready' : metadata.status as HandoffMetadata['status'],
+      protocol_version: protocol3 ? 3 : 2,
+      ...(protocol3 ? { locks_released: true } : { created: metadata.created, ...(metadata.priority ? { priority: metadata.priority as HandoffMetadata['priority'] } : {}) }),
+    };
   } catch { return null; }
 }
 
@@ -100,6 +117,45 @@ export function parseHandoff(content: string): Handoff | null {
   content = content.replace(/\r\n/g, '\n');
   const metadata = parseFrontmatter(content);
   if (!metadata) return null;
+  if (metadata.protocol_version === 3) {
+    const body = content.replace(/^---\n[\s\S]+?\n---\n/, '').replace(/^\n/, '');
+    const firstSection = body.indexOf('\n## ');
+    const headingStart = '# Context Handoff\n\n';
+    if (firstSection < 0 || !body.startsWith(headingStart)) return null;
+    const headerValues: Record<string, string> = Object.create(null);
+    for (const line of body.slice(headingStart.length, firstSection).split('\n')) {
+      const match = line.match(/^(Updated|Task|Status|Branch|Base commit):\s*(.+)$/);
+      if (match) { if (Object.hasOwn(headerValues, match[1])) return null; headerValues[match[1]] = match[2].trim(); }
+      else if (line.trim()) return null;
+    }
+    const status = headerValues.Status as Handoff['status'];
+    const statuses: Handoff['status'][] = ['in-progress', 'blocked', 'ready-for-review', 'complete'];
+    if (!headerValues.Updated || !headerValues.Task || !headerValues.Branch || !headerValues['Base commit'] || !statuses.includes(status)) return null;
+    const updated = headerValues.Updated.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) UTC$/);
+    if (!updated) return null;
+    try { timestamp(`${updated[1]}T${updated[2]}:00.000Z`); } catch { return null; }
+    const requiredSections = ['Goal', 'User Constraints', 'Current State', 'Changes', 'Decisions', 'Verification', 'Failed Attempts', 'Blockers and Unknowns', 'Next Actions', 'Resume Instructions', 'References'];
+    const allowedSections = new Set(requiredSections);
+    const sections: Record<string, string> = Object.create(null);
+    const pieces = body.split(/^## /m).slice(1);
+    for (const piece of pieces) {
+      const newline = piece.indexOf('\n'); if (newline < 0) return null;
+      const name = piece.slice(0, newline).trim();
+      if (!allowedSections.has(name) || Object.hasOwn(sections, name)) return null;
+      sections[name] = piece.slice(newline + 1).trim();
+    }
+    if (requiredSections.some(name => !Object.hasOwn(sections, name) || !sections[name])) return null;
+    const nextActions = sections['Next Actions'].split('\n').map(line => line.match(/^\d+\.\s+(.+)$/)?.[1]).filter((v): v is string => !!v);
+    if (!nextActions.length) return null;
+    const verified = sections.Verification.split('\n').filter(line => /^\|/.test(line) && !/^\|\s*:?-{2,}/.test(line) && !/\|\s*Check\s*\|/i.test(line));
+    const assumed = sections['Blockers and Unknowns'].split('\n').filter(line => /not verified/i.test(line) || /^[-*]\s+/.test(line)).map(line => line.replace(/^[-*]\s+/, '').trim()).filter(Boolean);
+    metadata.status = status === 'complete' ? 'completed' : 'ready';
+    return {
+      metadata, format_version: 3, status, title: headerValues.Task, context: sections.Goal,
+      task: sections['Next Actions'], verified, assumed, instructions: sections['Resume Instructions'],
+      sections, next_actions: nextActions,
+    };
+  }
 
   // Remove frontmatter
   const body = content.replace(/^---\n[\s\S]+?\n---\n/, '');
@@ -122,7 +178,7 @@ export function parseHandoff(content: string): Handoff | null {
   };
 
   return {
-    metadata,
+    metadata, format_version: 2,
     title: titleMatch?.[1]?.trim() || '',
     context: contextMatch?.[1]?.trim() || '',
     task: taskMatch?.[1]?.trim() || '',

@@ -106,28 +106,63 @@ from_class: claude-opus-5
 from_instance: claude-session-b
 to_class: codex-gpt-6
 to_instance: any
-scopes: api,tests
-status: ready
-created: 2026-10-25T10:00:00.000Z
+scopes: [api, tests]
+locks_released: true
 ---
 
-# Validate requests
+# Context Handoff
 
-## Context
+Updated: 2026-10-25 10:00 UTC
+Task: Validate requests
+Status: ready-for-review
+Branch: main
+Base commit: abc1234
+
+## Goal
 
 Requests need stricter validation.
 
-## Task
+## User Constraints
 
-Add the boundary checks.
+Keep the public schema compatible.
 
-## What I Verified
+## Current State
 
-- Existing tests cover valid requests.
+Boundary checks remain.
 
-## What I Assumed
+## Changes
 
-- The public schema stays compatible.
+No changes yet.
+
+## Decisions
+
+No decisions.
+
+## Verification
+
+| Check | Result | Scope / limitations |
+| --- | --- | --- |
+| Existing route tests | PASS | Does not cover new boundary checks |
+
+## Failed Attempts
+
+Nothing.
+
+## Blockers and Unknowns
+
+Nothing.
+
+## Next Actions
+
+1. Add the boundary checks.
+
+## Resume Instructions
+
+1. Read the request route and its tests.
+
+## References
+
+- `specs/03-handoff-format.md`
 ```
 
 ```bash
@@ -135,10 +170,11 @@ trinoris-agent claim --work-dir /repo --agent-class codex-gpt-6 \
   --instance codex-session-a --note validate-requests.md --json
 ```
 
-The SDK validates recipient class/instance, status, schema, registered scopes, and scope
-availability. `any` is supported only when explicit. Duplicate or unknown frontmatter,
-invalid dates, and incomplete sections fail validation. Claim does not acquire editing
-scopes; acquire those separately before writing.
+The SDK validates recipient class/instance, body status, schema, registered scopes, and
+scope availability. `any` is supported only when explicit, and `locks_released` must be
+true. Duplicate or unknown frontmatter, malformed timestamps, unsupported status values,
+and incomplete sections fail validation. A completed note cannot be claimed. Claim does
+not acquire editing scopes; acquire those separately before writing.
 
 The destination is `active/<instance>/<filename>`. Existing active content is preserved
 on conflict. A digest/claimant receipt identifies an identical retry and permits recovery

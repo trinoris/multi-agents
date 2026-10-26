@@ -61,6 +61,76 @@ describe('lease and duration utilities', () => {
 });
 
 describe('handoff and scope utilities', () => {
+  const protocol3Handoff = `---
+from_instance: codex-gpt-6-a3f2
+from_class: codex-gpt-6
+to_class: claude-opus-5 # any instance can claim
+to_instance: any
+scopes: [engine, specs]
+locks_released: true
+---
+
+# Context Handoff
+
+Updated: 2026-10-25 14:02 UTC
+Task: Validate the engine change
+Status: in-progress
+Branch: refactor/engine
+Base commit: 6d7956bd
+
+## Goal
+
+Validate engine inputs and preserve the public contract.
+
+## User Constraints
+
+- Use TDD.
+- Do not publish.
+
+## Current State
+
+- Completed: reviewed validation path.
+- Remaining: add boundary tests.
+
+## Changes
+
+| Path | Change | Reason |
+| --- | --- | --- |
+| engine/auth.js:638 | ... | ... |
+
+## Decisions
+
+- Keep the current API: accepted.
+
+## Verification
+
+| Check | Result | Scope / limitations |
+| --- | --- | --- |
+| npm test | PASS | existing tests only |
+
+Verified at commit: 6d7956bd. No later edits.
+
+## Failed Attempts
+
+Nothing.
+
+## Blockers and Unknowns
+
+- Deployment behavior **(not verified)**.
+
+## Next Actions
+
+1. Add input boundary tests.
+
+## Resume Instructions
+
+1. Read the source and run focused tests.
+
+## References
+
+- specs/03-handoff-format.md
+`;
+
   const handoffText = `---
 from_class: claude-opus-5
 from_instance: claude-a
@@ -117,6 +187,32 @@ Run the targeted tests.
       instructions: 'Run the targeted tests.',
     });
     expect(parseHandoff('No frontmatter')).toBeNull();
+  });
+
+  it('parses protocol 3 handoffs and normalizes their routing metadata', () => {
+    expect(parseFrontmatter(protocol3Handoff)).toMatchObject({
+      from_class: 'codex-gpt-6', from_instance: 'codex-gpt-6-a3f2',
+      to_class: 'claude-opus-5', to_instance: 'any', scopes: 'engine,specs',
+      locks_released: true, protocol_version: 3,
+    });
+    expect(parseHandoff(protocol3Handoff)).toMatchObject({
+      format_version: 3,
+      status: 'in-progress',
+      title: 'Validate the engine change',
+      context: 'Validate engine inputs and preserve the public contract.',
+      next_actions: ['Add input boundary tests.'],
+      sections: { 'User Constraints': expect.stringContaining('Do not publish.'), 'Changes': expect.stringContaining('engine/auth.js:638') },
+    });
+  });
+
+  it.each([
+    ['in-progress', 'ready'], ['blocked', 'ready'], ['ready-for-review', 'ready'], ['complete', 'completed'],
+  ])('maps protocol 3 body status %s to claim lifecycle %s', (status, lifecycle) => {
+    expect(parseHandoff(protocol3Handoff.replace('Status: in-progress', `Status: ${status}`))?.metadata.status).toBe(lifecycle);
+  });
+
+  it('rejects protocol 3 handoffs that claim locks were not released', () => {
+    expect(parseHandoff(protocol3Handoff.replace('locks_released: true', 'locks_released: false'))).toBeNull();
   });
 
   it('validates exact scope names and sorts scopes by registry order without mutating input', () => {

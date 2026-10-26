@@ -20,7 +20,17 @@ MA-T results remain evidence of their recorded runs, not proof of the current SD
 filesystem. Keep stable MA-T IDs when adding current regressions.
 
 
-## Status: IN PROGRESS — CLI verifier implemented; protocol tests remain tracked below
+## Current status: protocol 3 verified in CI
+
+The current workflow passed on commit `7168715606502077f520d1c181a44164056b1f9d`:
+[Package security regressions run 40289843909](https://github.com/trinoris/multi-agents/actions/runs/40289843909).
+All four jobs passed: Windows and Ubuntu on Node.js 20 and 24. The Ubuntu/Node.js 20 job
+also passed the clean Node.js 18 consumer smoke test. The full suite contains 121 tests
+across 13 files (core 35, SDK 34, CLI 52).
+
+The local v9fs adoption probe separately passed 50 trials with 8 workers and zero bad
+trials. This result applies only to that checkout and mount. The CI matrix is the evidence
+for the Windows and Ubuntu runner environments.
 
 ## Development philosophy: TDD
 
@@ -35,10 +45,12 @@ works is to race it on purpose.
 Test IDs are `MA-T<nn>`, stable, never renumbered. Status: ❌ not written · 🟡 written and
 failing as expected · ✅ passing.
 
-## Test cases
+## Legacy MA-T results (historical record)
 
-Run 2026-10-25 on v9fs (`/mnt/c`). Harnesses to be extracted into `tests/` from the
-scratch versions used for this run.
+The following table records the original 2026-10-25 protocol experiments. A status of
+`not written` means the test had not been written at that historical snapshot; it does not
+describe current regression coverage. Early shell and `coordination/` workflows below are
+not protocol 3 instructions. Current coverage is summarized in the next section.
 
 | # | Status | Result |
 | --- | --- | --- |
@@ -66,21 +78,20 @@ spec as first written.
 `MA-T14`, `MA-T15`, `MA-T16` test the agent class/instance model that enables N instances
 of the same model to work in parallel.
 
-## Test approach
+## Current regression inventory
 
-Filesystem behavior tests are shell-level — the subject is atomicity across real processes
-and platforms, which cannot be established by mocking. Unit tests cover CLI validation and
-probe-error reporting; they do not replace those filesystem behavior tests.
+Tests live beside the package entry points and exercise the shipped TypeScript SDK/CLI;
+the old proposed `tests/` directory tree above was never the repository layout.
 
-```text
-tests/
-├── concurrency/     N-process races: mkdir, claim, lock-break   (MA-T01, T04, T12)
-├── lifecycle/       lease expiry, malformed locks, ABA          (MA-T02, T03, T05)
-├── protocol/        incidents, heartbeat, git pre-check         (MA-T06, T09, T13)
-├── routing/         class/instance addressing, competition      (MA-T14, T15, T16)
-├── lint/            scope registry, handoff format, drift       (MA-T07, T08, T11)
-└── cross-platform/  WSL <-> Windows via powershell.exe          (MA-T10)
-```
+| Package | Files | Cases | Coverage focus |
+| --- | ---: | ---: | --- |
+| `packages/core` | 3 | 35 | Protocol contract, v2/v3 handoff parsing, input/schema validation, bounded terminal output |
+| `packages/sdk` | 4 | 34 | Path and file safety, generation ownership, leases, claims, guarded recovery, incidents, and real-process concurrency |
+| `packages/cli` | 6 | 52 | Setup/ignore/readiness, verifier probe behavior, CLI journeys, release input policy, tarball inspection, and offline consumer install |
+
+The suite uses both unit tests and real child-process integration tests. Mocked tests do not
+replace the per-environment `verify` probe. Heartbeat/daemon behavior is intentionally
+unsupported in protocol 3 and is not a pending acceptance criterion.
 
 ### CLI adoption-gate probe outcomes
 
@@ -113,58 +124,39 @@ automated test, not a manual procedure.
 
 ## Adoption
 
-Per working tree, scaffold once, verify the target tree, then allow agents to coordinate.
-`setup` installs instruction pointers, so do not start concurrent work until `verify`
-passes.
+Per working tree, initialize once, inspect generated instructions, and verify the actual
+checkout before allowing agents to coordinate. Setup installs instruction pointers and the
+package-owned contract under `.trinoris/`; do not start concurrent work until `verify`
+reports ready for that target filesystem.
 
 ```text
- 0. Run `trinoris-agent setup` to create .trinoris/ and the agent instruction pointers.
- 1. MA-T01 passes on the target filesystem. If mkdir is not atomic under real
+ 0. Run `node packages/cli/dist/bin.js setup --work-dir <target>` to create .trinoris/ and the agent instruction pointers.
+ 1. Run `node packages/cli/dist/bin.js verify --work-dir <target>` on the target filesystem. If mkdir is not atomic under real
     concurrency there, the protocol does not apply to that tree and must not be
     used. This is a gate, not a formality.
- 2. Review PROTOCOL.md, AGENTS.md, and the generated agent entry points.
- 3. Dry run: both agents acquire and release disjoint scopes, write and claim one
-    handoff each, with no real edits. Confirm each sees the other's locks and notes.
- 4. Deliberately break one lock and confirm the incident record appears.
+ 2. Review `.trinoris/PROTOCOL.md`, `AGENTS.md`, and installed agent entry points.
+ 3. Confirm all participating agents use the same working tree, protocol version, and scope registry.
+ 4. Exercise acquire/check/release and handoff claim with disposable work before real parallel edits.
  5. Only then use it for real work.
 ```
 
 Step 5 is not optional. Breaking a lock is the operation most likely to be done wrong under
 pressure, and the only way to trust the incident trail is to have seen it produced once.
 
-## Acceptance criteria
+## Current acceptance criteria
 
-- `MA-01` `MA-T01` passes on every filesystem where the protocol is installed, re-run
-  whenever the host or mount setup changes.
-- `MA-02` Every rule in spec 01's "Hard rules" has a test above, or is explicitly recorded
-  as unenforceable (rules 2 and 10 are judgement, not mechanism — they have no test and
-  that is stated, not hidden).
-- `MA-03` A consuming repo's `PROTOCOL.md` is byte-identical to this repo's, or the
-  divergence is flagged by `MA-T11`.
-- `MA-04` The dry run in adoption step 4 is completed and recorded before any real
-  concurrent work.
-- `MA-05` No implementation lands before its test is written and failing.
-- `MA-06` The claim primitive is `mkdir`, never `mv -n`. `MA-T04` is the standing guard.
-- `MA-07` Breaking a lock always acquires `<scope>.breaking` first. `MA-T12` is the guard.
-  A break implementation that skips the token passes casual testing and fails under load,
-  which is the worst combination available.
-- `MA-08` **NEW** Acquiring `git` for branch mutation checks for peer locks first.
-  `MA-T13` is the guard. This is the highest-risk operation in the protocol.
-- `MA-09` **NEW** Long operations (>5min) emit heartbeats every 2 minutes. Peers check
-  heartbeats before breaking expired leases. `MA-T09` validates the logic.
-- `MA-10` **NEW** Acquiring any scope checks `incidents/` for recent events in that scope.
-  `MA-T06` validates detection.
-- `MA-11` **NEW** Agent instances correctly identify themselves with `agent_instance` and
-  `agent_class` in all `holder.json` and heartbeat files.
-- `MA-12` **NEW** Handoff claiming respects `to_class` and `to_instance` fields. MA-T14,
-  T15, T16 validate routing logic.
-- `MA-13` **NEW** Multiple instances of same agent class can work in parallel on different
-  scopes without collision.
-- `MA-14` **CLI** A tool implementing spec 06 can be invoked with just `--class` and works.
-- `MA-15` **CLI** Status commands provide actionable info without requiring work.
-- `MA-16` **CLI** Configuration file, flags, and environment variables follow precedence.
-- `MA-17` **CLI** Daemon mode responds to SIGTERM with graceful shutdown.
-- `MA-18` **CLI** `setup` command creates valid structure that passes `verify` command.
+- CI release/security matrix passes on Linux and Windows with Node.js 20 and 24; Node.js 18
+  consumer smoke passes on Ubuntu/Node.js 20.
+- A consuming tree's installed `.trinoris/PROTOCOL.md` and digest match the package-owned
+  protocol contract; unsupported config or a missing ignore rule blocks readiness.
+- `verify` distinguishes a real atomicity failure from an inconclusive worker/environment
+  failure. A sandbox failure is not filesystem evidence.
+- Every implementation change adds a regression first; real-process tests cover concurrency
+  behavior that unit mocks cannot establish.
+- Protocol 3 claims enforce routed recipients and the required schema. Protocol 2 notes are
+  readable for compatibility; heartbeat/daemon behavior remains disabled.
+- State stays cooperative: direct filesystem writers, editors, Git commands, and other
+  clones are not fenced by this protocol.
 
 ## Honest limits
 

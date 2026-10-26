@@ -5,10 +5,10 @@ Proprietary and confidential.
 
 # Implementation Plan — trinoris-multi-agents
 
-**Status:** Protocol 3 implementation complete; cross-platform hardening validation is the next gate
+**Status:** Cross-platform gate and verification-spec reconciliation complete
 **Updated:** 2026-10-26
 **Repository version:** 0.2.0
-**Current baseline:** `1c2a184` (`fix(protocol): align handoff parser with v3 contract`)
+**Current baseline:** `7168715` (`fix(release): normalize Windows tar listing paths`)
 
 ## Purpose
 
@@ -48,36 +48,41 @@ commands. Verify the actual checkout filesystem before relying on its atomic ope
   2 notes remain readable.
 - Release validation includes manifest checks, frozen installation, dependency audit,
   package tests/builds, and packed consumer validation.
-- The full repository test suite passed: 120 tests across 13 test files (core 35, SDK 34,
-  CLI 51).
+- The full repository test suite passed: 121 tests across 13 test files (core 35, SDK 34,
+  CLI 52).
 - The local v9fs readiness probe passed 50 trials with 8 workers and zero bad trials.
 
 Details and limitations are recorded in [`specs/07-security-hardening.md`](../../specs/07-security-hardening.md).
 
-## Next milestone: cross-platform validation
+## Cross-platform validation: complete
 
-The Linux/v9fs result does not establish Windows filesystem behavior. The next gate is to
-run and review the existing CI matrix in `.github/workflows/security-regressions.yml`:
+GitHub Actions run [40289843909](https://github.com/trinoris/multi-agents/actions/runs/40289843909)
+passed on commit `7168715606502077f520d1c181a44164056b1f9d`:
 
-1. Confirm the Windows jobs complete for the configured Node.js versions and investigate
-   filesystem, path, process-spawn, or packaging differences.
-2. Confirm the Linux and Node.js 18 packed-consumer jobs still pass on the same commit.
-3. Record the workflow run URL, commit, OS, Node.js version, test counts, and any exclusions
-   in the security-hardening evidence. Do not describe local v9fs testing as Windows proof.
-4. Fix failures test-first, then rerun the affected matrix and full suite.
+- Windows and Ubuntu on Node.js 20 and 24: all four full-suite jobs passed.
+- The Ubuntu/Node.js 20 job also passed the Node.js 18 packed-consumer smoke test.
+- The workflow ran manifest validation, high-severity audit, full package tests, and the
+  applicable consumer runtime check.
 
-**Exit criteria:** all required matrix jobs pass, or each unsupported combination has an
-explicit, reviewed support boundary. A sandbox-blocked worker run is inconclusive and must
-not be recorded as an atomicity failure.
+This closes the cross-platform matrix gate for this commit. The v9fs probe remains separate
+evidence for its specific mount. The workflow emitted maintenance warnings about GitHub
+Action JavaScript runtimes and the `ubuntu-latest` image migration; the jobs themselves
+passed.
+
+## Verification-spec reconciliation: complete
+
+`specs/05-verification.md` now separates historical MA-T observations from the current
+121-test inventory and passing CI run. `specs/07-security-hardening.md` identifies the
+original findings as baseline evidence, records the current protocol 3 controls and matrix
+result, and retains uncovered subcases as open rather than treating green CI as proof of
+unexercised cases.
 
 ## Follow-up backlog
 
-After the cross-platform gate:
-
-1. Reconcile historical test tables and acceptance criteria in `specs/05-verification.md`
-   and `specs/07-security-hardening.md` with the shipped protocol 3 behavior and tests.
-   Keep historical MA-T results labeled as historical; do not silently reuse old IDs as
-   proof for current entry points.
+1. Verify the refreshed workflow on its next GitHub Actions run: checkout `v7.0.1`, setup-node
+   `v7.1.0`, pnpm/action-setup `v6.1.0`, and the pinned `ubuntu-24.04` runner. Confirm the
+   four OS/Node jobs and the Node.js 18 consumer smoke remain active, and check that the
+   prior action-runtime and Ubuntu image-migration warnings are gone.
 2. Audit the release workflow against the current package manifests, CI matrix, and actual
    npm publication state before preparing a release. Do not publish as part of validation.
 3. Only consider heartbeat/daemon or network coordination after a separate design and

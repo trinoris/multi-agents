@@ -111,28 +111,32 @@ explicit identity works across the lease lifecycle, and invalid setup durations 
 filesystem changes. The fixed registry includes `packages/`, so package code and local tests
 can be coordinated under a defined scope.
 
-### Phase 2 — complete the handoff lifecycle
+### Phase 2 — complete the handoff lifecycle — implemented locally
 
-Add CLI commands backed by new SDK operations where needed:
+The CLI and SDK now provide the following lifecycle through SDK-owned, guarded
+operations:
 
-- `handoff validate <draft>` — validate protocol version, required sections, recipients,
+- `handoff validate --note <filename>` — validate protocol version, required sections, recipients,
   scopes, status, size, and safe file type without mutating state.
-- `handoff publish <draft>` — validate, then atomically publish a uniquely named note to
+- `handoff publish --note <filename>` — validate, then publish a uniquely named note to
   the correct inbox; refuse overwrite, symlinks, invalid recipients, and held scopes.
-- `handoff list [--class <class>]` and `handoff show <filename>` — read only the registered
+- `handoff list --agent-class <class> --instance <id>` and `handoff show --note <filename>` — read only the registered
   inbox/active locations; do not accept arbitrary path traversal.
-- `handoff claim <filename>` — preserve the current guarded, recipient-checked claim and
+- `handoff claim --note <filename>` — preserve the current guarded, recipient-checked claim and
   active destination behavior; retain `claim` as a compatibility alias if needed.
-- `handoff complete <filename> --outcome <text>` — validate the active note and identity,
+- `handoff complete --note <filename> --outcome <text>` — validate the active note and identity,
   record the outcome, then archive atomically without replacing an existing archive entry.
 
-Do not make a completed note claimable. Define interrupted publication/completion receipts
-and retries before implementing them. Every filesystem mutation must go through the SDK's
-shared guard and must preserve truthful attempted/completed/failed records where applicable.
+Completed notes remain unclaimable. Publication and completion use receipts so an exact
+retry can finish an interrupted move; conflicts do not overwrite existing files. Every
+filesystem mutation goes through the SDK's shared guard.
 
-**TDD exit:** unit tests cover validation and schema; real-process E2E tests cover duplicate
-publish, concurrent claim, interrupted move, archive collision, idempotent retry, and
-cross-platform filename behavior.
+**TDD status:** unit tests cover schema validation, authorized read locations, duplicate
+publish, held-scope refusal, archive collision, idempotent retries, and interrupted publish
+and completion recovery. CLI subprocess coverage runs the full validate → publish → list →
+claim → show → complete journey. Existing real-process claim and lease tests remain in place.
+Cross-platform Windows/Ubuntu validation is a CI gate and is not represented as a new local
+Windows run.
 
 ### Phase 3 — read-only operational visibility
 
@@ -175,6 +179,5 @@ required matrix jobs pass; no daemon/heartbeat/network behavior is implied.
 
 ## Current next action
 
-Continue with Phase 2: implement the guarded handoff lifecycle before adding read-only
-visibility and convenience commands. Keep the work within protocol 3's one-shot, local
-coordination boundary.
+Proceed to Phase 3: add read-only incident visibility and improve status/command help and
+JSON error behavior. Keep the work within protocol 3's one-shot, local coordination boundary.

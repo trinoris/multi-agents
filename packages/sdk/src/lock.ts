@@ -5,8 +5,8 @@
 import fs from 'node:fs';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { type AgentIdentity, type Lock, ValidationError, boundedText, calculateExpiration, duration, identifier, isInGracePeriod, isLockExpired, parseHandoff, validateLock, object, validDate } from '@trinoris/agent-core';
-import { directory, jsonFile, readText, removeOwnedDirectory, safePath } from './filesystem.js';
+import { type AgentIdentity, type Handoff, type Lock, ValidationError, boundedText, calculateExpiration, duration, identifier, isInGracePeriod, isLockExpired, parseHandoff, validateLock, object, validDate } from '@trinoris/agent-core';
+import { directory, jsonFile, readText, removeOwnedDirectory, safePath, writeAtomic } from './filesystem.js';
 import { loadConfiguration } from './configuration.js';
 
 export interface LockPaths { root: string; clock?: () => Date }
@@ -203,6 +203,195 @@ export function claim(p: LockPaths, noteFilename: string, fromDir: string, toDir
       return { ok: true as const, path: dest, digest: hash, alreadyClaimed: false };
     } finally { cleanMarker(p, token, operationId); }
   });
+}
+
+export type HandoffLocation = 'inbox' | 'universal' | 'active';
+export type HandoffDraftResult = Failure | { ok: true; path: string; digest: string; note: Handoff };
+export interface HandoffListEntry {
+  filename: string;
+  location: HandoffLocation;
+  path: string;
+  valid: boolean;
+  title?: string;
+  status?: string;
+  scopes?: string[];
+}
+
+function handoffFilename(filename: string) {
+  identifier(filename, 'handoff filename', 160);
+  if (!filename.endsWith('.md')) throw new ValidationError('Expected Markdown handoff filename');
+}
+function draftPath(p: LockPaths, filename: string) { return join(p.root, 'handoff', 'drafts', filename); }
+function inboxPath(p: LockPaths, filename: string, agentClass: string) { return join(p.root, 'handoff', `for-${agentClass}`, filename); }
+function activePath(p: LockPaths, filename: string, instance: string) { return join(p.root, 'active', instance, filename); }
+function validateHandoff(content: string, p: LockPaths): Handoff | null {
+  const note = parseHandoff(content);
+  if (!note || note.format_version !== 3) return null;
+  const registry = loadConfiguration(p).scopes.registry;
+  if (note.metadata.scopes.split(',').some(scope => !registry.includes(scope))) return null;
+  return note;
+}
+function anyUnknownOrOwnedLock(p: LockPaths, owner: AgentIdentity): boolean {
+  const registry = loadConfiguration(p).scopes.registry;
+  for (const scope of heldNames(p)) {
+    if (!registry.includes(scope)) return true;
+    const lock = readHolder(p, scope);
+    if (!lock || lock.agent_instance === owner.agent_instance) return true;
+  }
+  return false;
+}
+function parseReceipt(text: string | null): Record<string, any> | null {
+  if (text === null) return null;
+  try {
+    const value = JSON.parse(text);
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : { invalid: true };
+  } catch { return { invalid: true }; }
+}
+
+/** Validate a user-authored draft inside `.trinoris/handoff/drafts/` without mutating it. */
+export function validateHandoffDraft(p: LockPaths, filename: string): HandoffDraftResult {
+  try { handoffFilename(filename); } catch { return fail('invalid-note'); }
+  if (!safePath(p.root)?.isDirectory()) throw new Error('Missing safe .trinoris root');
+  const path = draftPath(p, filename); const content = readText(p.root, path, 262144);
+  if (content === null) return fail('missing');
+  const note = validateHandoff(content, p); if (!note || note.metadata.status === 'completed') return fail('invalid-note');
+  return { ok: true, path, digest: digest(content), note };
+}
+
+/** Publish a validated draft to its declared recipient inbox under the shared mutation guard. */
+export function publishHandoff(p: LockPaths, filename: string, owner: AgentIdentity) {
+  handoffFilename(filename); identity(owner);
+  if (!safePath(p.root)?.isDirectory()) throw new Error('Missing safe .trinoris root');
+  const source = draftPath(p, filename); const receiptId = digest(`publish:${source}:${owner.agent_instance}`);
+  const receiptPath = join(p.root, 'published', `${receiptId}.json`);
+  return mutate(p, owner, 'handoff-publish', operationId => {
+    const content = readText(p.root, source, 262144); const prior = parseReceipt(readText(p.root, receiptPath));
+    if (content === null) {
+      if (!prior || prior.invalid || prior.source !== 'handoff/drafts/' + filename || prior.published_by !== owner.agent_instance) return fail('missing');
+      const saved = readText(p.root, join(p.root, prior.destination), 262144);
+      if (saved === null || digest(saved) !== prior.digest) return fail('destination-conflict');
+      return { ok: true as const, path: join(p.root, prior.destination), digest: prior.digest as string, alreadyPublished: true };
+    }
+    const note = validateHandoff(content, p);
+    if (!note || note.metadata.status === 'completed') return fail('invalid-note');
+    if (note.metadata.from_class !== owner.agent_class || note.metadata.from_instance !== owner.agent_instance) return fail('recipient-mismatch');
+    if (anyUnknownOrOwnedLock(p, owner)) return fail('scope-held');
+    const inbox = note.metadata.to_class === 'any' ? 'for-any' : `for-${note.metadata.to_class}`;
+    const destination = `handoff/${inbox}/${filename}`; const dest = join(p.root, destination);
+    if (prior && (prior.invalid || prior.source !== `handoff/drafts/${filename}` || prior.destination !== destination || prior.published_by !== owner.agent_instance || prior.digest !== digest(content))) return fail('destination-conflict');
+    if (safePath(p.root, dest)) {
+      if (!prior) return fail('destination-conflict');
+      const saved = readText(p.root, dest, 262144);
+      if (saved === null || digest(saved) !== digest(content)) return fail('destination-conflict');
+      fs.unlinkSync(source);
+      return { ok: true as const, path: dest, digest: digest(content), alreadyPublished: true };
+    }
+    directory(p.root, join(p.root, 'published'));
+    if (!prior) jsonFile(p.root, receiptPath, { schema_version: 1, operation_id: operationId, source: `handoff/drafts/${filename}`, destination, digest: digest(content), published_by: owner.agent_instance, published_class: owner.agent_class }, true);
+    directory(p.root, join(p.root, 'handoff', inbox));
+    fs.renameSync(source, dest);
+    return { ok: true as const, path: dest, digest: digest(content), alreadyPublished: false };
+  });
+}
+
+/** List the caller's inboxes and, when created, their own active notes. */
+export function listHandoffs(p: LockPaths, owner: AgentIdentity): HandoffListEntry[] {
+  identity(owner); if (!safePath(p.root)?.isDirectory()) throw new Error('Missing safe .trinoris root');
+  const locations: Array<[HandoffLocation, string]> = [
+    ['inbox', `handoff/for-${owner.agent_class}`], ['universal', 'handoff/for-any'], ['active', `active/${owner.agent_instance}`],
+  ];
+  const result: HandoffListEntry[] = [];
+  for (const [location, relativeDir] of locations) {
+    const path = join(p.root, relativeDir); const stat = safePath(p.root, path);
+    if (!stat) continue;
+    if (!stat.isDirectory()) throw new Error('Handoff location must be a directory');
+    const names = fs.readdirSync(path).filter(name => name.endsWith('.md')).sort();
+    if (result.length + names.length > 500) throw new Error('Handoff listing exceeds the 500-note limit');
+    for (const filename of names) {
+      try { handoffFilename(filename); } catch { continue; }
+      const file = join(path, filename); const content = readText(p.root, file, 262144); if (content === null) continue;
+      const note = validateHandoff(content, p);
+      result.push({ filename, location, path: file, valid: !!note, ...(note ? { title: note.title, status: note.status ?? note.metadata.status, scopes: note.metadata.scopes.split(',') } : {}) });
+    }
+  }
+  return result;
+}
+
+/** Read one note only from the caller's inbox, universal inbox, or own active directory. */
+export function readHandoff(p: LockPaths, filename: string, owner: AgentIdentity, location: HandoffLocation = 'inbox') {
+  handoffFilename(filename); identity(owner);
+  let path: string;
+  if (location === 'inbox') path = inboxPath(p, filename, owner.agent_class);
+  else if (location === 'universal') path = inboxPath(p, filename, 'any');
+  else if (location === 'active') path = activePath(p, filename, owner.agent_instance);
+  else throw new ValidationError('Invalid handoff location');
+  const content = readText(p.root, path, 262144); if (content === null) return fail('missing');
+  const note = validateHandoff(content, p); if (!note) return fail('invalid-note');
+  return { ok: true as const, path, content, digest: digest(content), note };
+}
+
+function completedContent(content: string, outcome: string): string {
+  const statusLine = /^Status: (?:in-progress|blocked|ready-for-review)$/m;
+  if (!statusLine.test(content)) throw new ValidationError('Handoff status cannot be completed');
+  const withStatus = content.replace(statusLine, 'Status: complete');
+  const start = withStatus.indexOf('\n## Changes\n'); if (start < 0) throw new ValidationError('Handoff is missing its Changes section');
+  const end = withStatus.indexOf('\n## ', start + 1); if (end < 0) throw new ValidationError('Handoff section structure is invalid');
+  return `${withStatus.slice(0, end)}\n- Completion outcome: ${outcome}${withStatus.slice(end)}`;
+}
+
+/** Complete an active protocol 3 note, archive it, and idempotently update the archive index. */
+export function completeHandoff(p: LockPaths, filename: string, owner: AgentIdentity, outcome: string) {
+  handoffFilename(filename); identity(owner); boundedText(outcome, 'handoff outcome');
+  if (!safePath(p.root)?.isDirectory()) throw new Error('Missing safe .trinoris root');
+  const sourceRelative = `active/${owner.agent_instance}/${filename}`; const source = join(p.root, sourceRelative);
+  const archiveRelative = `archive/${filename}`; const archived = join(p.root, archiveRelative);
+  const receiptId = digest(`complete:${sourceRelative}`); const receiptPath = join(p.root, 'archive', `.${receiptId}.receipt.json`);
+  return mutate(p, owner, 'handoff-complete', operationId => {
+    const content = readText(p.root, source, 262144); const prior = parseReceipt(readText(p.root, receiptPath));
+    if (prior && (prior.invalid || prior.source !== sourceRelative || prior.archived !== archiveRelative || prior.completed_by !== owner.agent_instance)) return fail('destination-conflict');
+    if (content === null) {
+      if (!prior) return fail('missing');
+      const saved = readText(p.root, archived, 262144);
+      if (saved === null || digest(saved) !== prior.completed_digest) return fail('destination-conflict');
+      ensureArchiveIndex(p, receiptId, prior);
+      return { ok: true as const, path: archived, digest: prior.completed_digest as string, alreadyCompleted: true };
+    }
+    const note = validateHandoff(content, p); if (!note || note.status === 'complete') return fail('invalid-note');
+    if (anyUnknownOrOwnedLock(p, owner)) return fail('scope-held');
+    const updated = completedContent(content, outcome);
+    if (!validateHandoff(updated, p) || parseHandoff(updated)?.status !== 'complete') return fail('invalid-note');
+    const originalDigest = digest(content); const completedDigest = digest(updated);
+    if (prior && (prior.original_digest !== originalDigest || prior.completed_digest !== completedDigest || prior.outcome !== outcome)) return fail('destination-conflict');
+    if (!prior) jsonFile(p.root, receiptPath, {
+      schema_version: 1, operation_id: operationId, source: sourceRelative, archived: archiveRelative,
+      original_digest: originalDigest, completed_digest: completedDigest, completed_by: owner.agent_instance,
+      completed_class: owner.agent_class, from_class: note.metadata.from_class,
+      from_instance: note.metadata.from_instance, to_class: note.metadata.to_class,
+      scopes: note.metadata.scopes, outcome, completed_at: now(p).toISOString(),
+    }, true);
+    const saved = readText(p.root, archived, 262144);
+    if (saved === null) writeAtomic(p.root, archived, updated, true);
+    else if (digest(saved) !== completedDigest) return fail('destination-conflict');
+    const current = readText(p.root, source, 262144);
+    if (current !== null) {
+      if (digest(current) !== originalDigest) throw new Error('Active handoff changed during completion; inspect archive receipt');
+      fs.unlinkSync(source);
+    }
+    const receipt = prior ?? { source: sourceRelative, completed_at: now(p).toISOString(), outcome, from_class: note.metadata.from_class, from_instance: note.metadata.from_instance, to_class: note.metadata.to_class, completed_class: owner.agent_class, scopes: note.metadata.scopes };
+    ensureArchiveIndex(p, receiptId, receipt);
+    return { ok: true as const, path: archived, digest: completedDigest, alreadyCompleted: false };
+  });
+}
+function ensureArchiveIndex(p: LockPaths, receiptId: string, receipt: Record<string, any>) {
+  const path = join(p.root, 'archive', 'INDEX.md'); const current = readText(p.root, path, 1_048_576);
+  if (current === null) throw new Error('Missing safe archive index');
+  const markerText = `<!-- receipt:${receiptId} -->`;
+  if (current.includes(markerText)) return;
+  const cell = (value: unknown) => String(value ?? '').replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/[\r\n]/g, ' ');
+  const from = `${receipt.from_class ?? 'unknown'}/${receipt.from_instance ?? 'unknown'}`;
+  const to = `${receipt.to_class ?? 'unknown'}/${receipt.completed_class ?? 'unknown'}`;
+  const line = `| ${cell(receipt.completed_at)} | ${cell(receipt.source?.split('/').at(-1))} | ${cell(from)} | ${cell(to)} | ${cell(receipt.outcome)} | ${markerText}`;
+  writeAtomic(p.root, path, `${current}${current.endsWith('\n') ? '' : '\n'}${line}\n`);
 }
 export function acquireMany(p: LockPaths, scopes: string[], owner: AgentIdentity, minutes: number) {
   if (!scopes.length || scopes.length > 64 || new Set(scopes).size !== scopes.length) throw new ValidationError('Invalid scope batch');

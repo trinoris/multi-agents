@@ -101,8 +101,43 @@ Actual Git commands still require the agents to follow the protocol.
 
 ## Handoffs
 
-Release the author's scopes, then publish a uniquely named `.md` note under
-`.trinoris/handoff/for-<class>/` (or `for-any/` for an explicitly universal note).
+Write a protocol 3 note under `.trinoris/handoff/drafts/`, validate it, release the
+author's scopes, then publish it to the recipient inbox. A published note is routed using
+its `to_class` field. The recipient can list, inspect, claim, and complete its note through
+the CLI:
+
+```bash
+trinoris-agent handoff validate --work-dir /repo --note review.md --json
+trinoris-agent handoff publish --work-dir /repo --agent-class codex \
+  --instance codex-session-a --note review.md --json
+trinoris-agent handoff list --work-dir /repo --agent-class claude \
+  --instance claude-session-b --json
+trinoris-agent handoff show --work-dir /repo --agent-class claude \
+  --note review.md --location inbox
+trinoris-agent handoff claim --work-dir /repo --agent-class claude \
+  --instance claude-session-b --note review.md --json
+trinoris-agent handoff show --work-dir /repo --agent-class claude \
+  --instance claude-session-b --note review.md --location active
+trinoris-agent handoff complete --work-dir /repo --agent-class claude \
+  --instance claude-session-b --note review.md --outcome 'Review passed.' --json
+```
+
+`list` requires both class and instance so it can include that instance's active notes.
+`show --location active` is restricted to the supplied instance. `show` defaults to the
+class inbox; `--location universal` reads the explicitly universal inbox. These operations
+do not accept arbitrary paths.
+
+Publication and completion write receipts before moving files. If interrupted, retry the
+same filename with the same identity and content/outcome; conflicting content is refused.
+The recipient must claim before completion. Completion records the outcome in the archived
+note and adds one archive index entry. `claim --note ...` remains available as a compatibility
+alias for `handoff claim`.
+
+### Handoff note format
+
+Use the protocol 3 structure documented in [`specs/03-handoff-format.md`](../../specs/03-handoff-format.md).
+Its frontmatter must identify sender, recipient, scopes, and confirm `locks_released: true`.
+Keep secrets out of handoff text: the shared checkout is not a secret store.
 
 ```markdown
 ---

@@ -3,18 +3,20 @@
 import fs from 'node:fs';
 import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { acquire, acquireMany, release, renew, inspect, isHolder, breakLock, claim, diagnose, recoverMarker, loadConfiguration, safePath } from '@trinoris/agent-sdk';
+import { acquire, acquireMany, release, renew, inspect, isHolder, breakLock, claim, diagnose, recoverMarker, loadConfiguration, safePath, validateHandoffDraft, publishHandoff, listHandoffs, readHandoff, completeHandoff } from '@trinoris/agent-sdk';
 import { generateInstanceId, terminalText, identifier } from '@trinoris/agent-core';
 import { setup } from './commands/setup.js';
 import { verify } from './commands/verify.js';
 
 const common = ['work-dir', 'agent-class', 'instance', 'json'];
-const identityCommands = new Set(['acquire', 'acquire-many', 'check', 'renew', 'release', 'break', 'claim', 'recover']);
+const identityCommands = new Set(['acquire', 'acquire-many', 'check', 'renew', 'release', 'break', 'claim', 'recover', 'handoff-publish', 'handoff-complete']);
 const allowed: Record<string, string[]> = {
   setup: ['force', 'agent-classes', 'scopes', 'lease-minutes', 'grace-minutes'], verify: ['trials', 'concurrency'], status: ['scope'],
   acquire: ['scope', 'task'], 'acquire-many': ['scopes'], check: ['scope', 'generation'],
   renew: ['scope', 'generation'], release: ['scope', 'generation'], break: ['scope', 'reason'],
   claim: ['note', 'from', 'to'], diagnose: [], recover: ['marker', 'operation', 'reason', 'confirm-stopped'],
+  'handoff-validate': ['note'], 'handoff-publish': ['note'], 'handoff-list': [],
+  'handoff-show': ['note', 'location'], 'handoff-complete': ['note', 'outcome'],
 };
 const booleans = new Set(['json', 'force', 'confirm-stopped']);
 const usage = `trinoris-agent — cooperative local coordination, protocol 3
@@ -30,6 +32,12 @@ renew --scope S --generation G       Renew a still-live generation
 release --scope S --generation G     Remove only the matching generation
 break --scope S --reason R           Take over a stale lease; retain its new generation
 claim --note F                      Validate routing; move to active/<instance>/
+handoff validate --note F           Validate a draft under .trinoris/handoff/drafts/
+handoff publish --note F            Publish a validated draft to its declared inbox
+handoff list                        List this class's inbox and this instance's active notes
+handoff show --note F [--location L] Read an authorized inbox or active note
+handoff claim --note F              Claim a note from the class inbox
+handoff complete --note F --outcome T Archive an active note and record its outcome
 diagnose                            Read abandoned operation metadata
 recover --marker M --operation ID --reason R --confirm-stopped
                                     Offline operator recovery, never automatic
@@ -53,7 +61,14 @@ function parse(command: string, args: string[]) {
   return opts;
 }
 async function main() {
-  const [command, ...args] = process.argv.slice(2);
+  const [rawCommand, ...rawArgs] = process.argv.slice(2);
+  let command = rawCommand; let args = rawArgs;
+  if (rawCommand === 'handoff') {
+    const [subcommand, ...rest] = rawArgs;
+    if (!subcommand || !['validate', 'publish', 'list', 'show', 'claim', 'complete'].includes(subcommand)) throw new Error('Unknown handoff command; use --help');
+    command = subcommand === 'claim' ? 'claim' : `handoff-${subcommand}`;
+    args = rest;
+  }
   if (!command || command === '--help' || command === '-h') { console.log(usage); return; }
   const opts = parse(command, args);
   if (identityCommands.has(command) && (typeof opts['agent-class'] !== 'string' || typeof opts.instance !== 'string')) {
@@ -92,6 +107,24 @@ async function main() {
     const result = recoverMarker(paths, required('marker'), id === 'unknown' ? null : id, owner, required('reason'), opts['confirm-stopped'] === true);
     output(result); if (!result.ok) process.exitCode = result.reason === 'busy' ? 3 : 1; return;
   }
+  if (command === 'handoff-validate') {
+    const result = validateHandoffDraft(paths, required('note'));
+    output(result, result.ok ? `Valid handoff draft: ${result.note.title}` : `Invalid or unavailable handoff draft (${result.reason})`);
+    if (!result.ok) process.exitCode = 1; return;
+  }
+  if (command === 'handoff-list') {
+    if (typeof opts['agent-class'] !== 'string' || typeof opts.instance !== 'string') throw new Error('handoff list requires --agent-class and --instance so it can include the caller\'s active notes');
+    output(listHandoffs(paths, { agent_class: agentClass, agent_instance: instance })); return;
+  }
+  if (command === 'handoff-show') {
+    if (typeof opts['agent-class'] !== 'string') throw new Error('handoff show requires --agent-class');
+    const location = value('location', 'inbox');
+    if (location === 'active' && typeof opts.instance !== 'string') throw new Error('Reading an active handoff requires --instance');
+    if (!['inbox', 'universal', 'active'].includes(location)) throw new Error('--location must be inbox, universal, or active');
+    const result = readHandoff(paths, required('note'), { agent_class: agentClass, agent_instance: instance }, location as 'inbox' | 'universal' | 'active');
+    output(result, result.ok ? result.content : `Handoff unavailable (${result.reason})`);
+    if (!result.ok) process.exitCode = 1; return;
+  }
   const config = loadConfiguration(paths, true);
   const minutes = config.scopes.lease_duration_minutes; const grace = config.scopes.grace_period_minutes;
   if (command === 'status') {
@@ -112,6 +145,8 @@ async function main() {
     case 'release': result = release(paths, required('scope'), instance, required('generation')); break;
     case 'break': result = breakLock(paths, required('scope'), owner, minutes, grace, required('reason')); break;
     case 'claim': result = claim(paths, required('note'), value('from', `handoff/for-${agentClass}`), value('to', `active/${instance}`), owner); break;
+    case 'handoff-publish': result = publishHandoff(paths, required('note'), owner); break;
+    case 'handoff-complete': result = completeHandoff(paths, required('note'), owner, required('outcome')); break;
     default: throw new Error('Unsupported command');
   }
   output(result);

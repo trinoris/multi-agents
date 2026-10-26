@@ -37,6 +37,8 @@ describe('SG-01 safe setup', () => {
     expect(config.protocol_version).toBe('3'); expect(config.heartbeat.enabled).toBe(false);
     expect(readFileSync(join(workDir, '.gitignore'), 'utf8')).toContain('/.trinoris/');
     expect(existsSync(join(workDir, '.kiro'))).toBe(false);
+    expect(existsSync(join(workDir, '.trinoris/handoff/drafts'))).toBe(true);
+    expect(existsSync(join(workDir, '.trinoris/published'))).toBe(true);
   });
   it('ships all four load-bearing rules to an empty external consumer', () => {
     const workDir = fixture(); setup({ workDir });

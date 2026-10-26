@@ -38,7 +38,7 @@ export function setup(opts: SetupOptions): SetupResult {
     ['.claude/skills/agent-handoff/SKILL.md', `---\nname: agent-handoff\ndescription: Coordinate cooperating agents in a shared local working tree.\n---\n\n${rules}\n`],
     ['.trinoris/archive/INDEX.md', '# Handoff archive\n\n| Completed | Note | From | To | Outcome |\n| --- | --- | --- | --- | --- |\n'],
   ]);
-  const dirs = ['locks', 'claims', 'handoff', 'active', 'archive', 'incidents', 'heartbeat', ...[...new Set([...config.agent_classes, 'any'])].map(c => `handoff/for-${c}`)];
+  const dirs = ['locks', 'claims', 'handoff', 'handoff/drafts', 'published', 'active', 'archive', 'incidents', 'heartbeat', ...[...new Set([...config.agent_classes, 'any'])].map(c => `handoff/for-${c}`)];
   // Preflight every path before any generated file is written, including skipped files.
   for (const name of dirs) { const st = safePath(root, join(coord, name)); if (st && !st.isDirectory()) throw new Error('Expected setup directory'); }
   const gitignore = join(root, '.gitignore');

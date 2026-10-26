@@ -16,10 +16,8 @@ coding agent. The earlier interactive, once, daemon, configuration-precedence, a
 proposal is retained in [`docs/archive/CLI-SPEC-2026-10-25.md`](../docs/archive/CLI-SPEC-2026-10-25.md)
 as historical material, not as a current contract.
 
-The approved next work is tracked separately in
+The remaining CLI roadmap is tracked separately in
 [`docs/planning/CLI-MODE-COMPLETION-PLAN.md`](../docs/planning/CLI-MODE-COMPLETION-PLAN.md).
-Planned handoff lifecycle and visibility commands below are explicitly not part of the
-current CLI.
 
 ## Purpose and boundary
 
@@ -55,10 +53,12 @@ The current top-level help is available with `trinoris-agent --help` or `trinori
 | `--instance <id>` | Explicit coordination label. Stateful commands require it explicitly; other commands generate an unused per-invocation value when omitted. |
 | `--json` | Emits successful command results as JSON. Parse and runtime errors remain bounded plain text on stderr. |
 
-The stateful command set (`acquire`, `acquire-many`, `check`, `renew`, `release`, `break`,
-`claim`, and `recover`) rejects a missing `--agent-class` or `--instance` before it changes
-state. Reuse the same explicit labels across related commands, and retain the generation
-returned by `acquire` or `break`. These labels do not prove who is making the call.
+Lease mutation commands (`acquire`, `acquire-many`, `check`, `renew`, `release`, `break`,
+`claim`, and `recover`) and handoff mutation commands (`handoff publish`, `handoff complete`)
+reject missing `--agent-class` or `--instance` before changing state. `handoff list` requires
+both labels because it includes the caller's active notes. Reuse the same explicit labels
+across related commands, and retain the generation returned by `acquire` or `break`. These
+labels do not prove who is making the call.
 
 The CLI has no user config file, `--config` option, environment-variable precedence, or
 persisted identity profile. Installed coordination settings are read from the selected
@@ -78,6 +78,12 @@ checkout's `.trinoris/config.json` by the SDK.
 | `release` | `--scope <scope>`, `--generation <id>` | Releases only the matching generation. |
 | `break` | `--scope <scope>`, `--reason <text>` | Performs guarded takeover after expiry plus grace or an eligible malformed-lock grace period; preserves stale state and returns the new generation. |
 | `claim` | `--note <filename>`, optional `--from <inbox>`, `--to <active-dir>` | Validates recipient and note rules and moves a matching inbox note to the claimant's active directory. Defaults to `handoff/for-<class>` and `active/<instance>`. |
+| `handoff validate` | `--note <filename>` | Validates a draft under `.trinoris/handoff/drafts/` without mutation. |
+| `handoff publish` | `--note <filename>`, `--agent-class`, `--instance` | Validates and publishes a draft to its declared inbox. Uses the shared mutation guard and an idempotent publication receipt; refuses an existing destination. |
+| `handoff list` | `--agent-class`, `--instance` | Lists the caller-class inbox, universal inbox, and that instance's active notes. |
+| `handoff show` | `--note <filename>`, `--agent-class`, optional `--instance`, `--location inbox\|universal\|active` | Reads only a managed inbox or the caller's own active directory. `--instance` is required for `active`. |
+| `handoff claim` | Same as `claim` | Compatibility spelling for the guarded claim operation. |
+| `handoff complete` | `--note <filename>`, `--outcome <text>`, `--agent-class`, `--instance` | Completes and archives an active note. Writes an idempotent receipt and archive index entry; does not overwrite another archive entry. |
 | `diagnose` | none | Read-only inspection of abandoned mutation, recovery, break, and claim markers. |
 | `recover` | `--marker <path>`, `--operation <id or unknown>`, `--reason <text>`, `--confirm-stopped` | Explicitly recovers an exact diagnosed marker after all affected actors have stopped. |
 
@@ -105,10 +111,14 @@ incident-list command.
 
 ## Security requirements
 
-- All state-changing lease and claim operations go through the SDK's shared mutation guard.
+- All state-changing lease and handoff operations go through the SDK's shared mutation guard.
 - `check`, `renew`, and `release` require both the instance label and exact generation.
 - Claim validates protocol 3 note structure, recipient class/instance, status, source inbox,
   and destination. It never overwrites existing active content.
+- Handoff publish and complete are guarded, receipt-backed mutations. Exact retries can
+  finish an interrupted move; conflicting content or a different operation is refused.
+- Handoff reads are constrained to the caller-class inbox, universal inbox, or the exact
+  active directory named by `--instance`; arbitrary filesystem paths are not accepted.
 - Takeover records an attempted/completed/failed outcome where storage allows, preserves
   stale state, and serializes against other mutations.
 - `recover` is offline operator recovery. It requires `--confirm-stopped` and the exact
@@ -118,24 +128,21 @@ incident-list command.
 - Keep secrets out of task, reason, handoff, and incident text. These fields are local
   coordination records, not a protected secret store.
 
-## Current handoff limitation
+## Handoff workflow
 
-The CLI supports **claim only**. Creating and publishing a valid Markdown handoff, listing
-inbox/active notes, viewing a note through a managed read command, and completing/archive
-operations are performed outside the CLI today. Do not assume the proposed historical
-`handoffs`, `archive`, `once`, or `daemon` commands exist.
-
-The CLI completion plan specifies how to add the missing lifecycle through SDK-owned,
-guarded operations. Until those commands are implemented, users must follow
-[`specs/03-handoff-format.md`](03-handoff-format.md) and the actual procedure in the
-[`@trinoris/agent-cli` guide](../packages/cli/README.md).
+Create a protocol 3 note in `.trinoris/handoff/drafts/`, validate it, release owned scopes,
+then publish it. The recipient lists and reads only its routed inbox, claims the note into
+its own active directory, and completes it with a recorded outcome when done. See the
+[`@trinoris/agent-cli` guide](../packages/cli/README.md) for examples and
+[`specs/03-handoff-format.md`](03-handoff-format.md) for the note schema.
 
 ## Implemented tests
 
 The command contract is exercised by:
 
 - `packages/cli/src/commands/cli.integration.test.ts` — installed CLI command journeys,
-  lease lifecycle, argument rejection, diagnosis, and recovery.
+  lease lifecycle, handoff validate/publish/list/show/claim/complete journey, argument
+  rejection, diagnosis, and recovery.
 - `packages/cli/src/commands/setup.security.test.ts` — safe and idempotent setup plus
   package-owned protocol installation.
 - `packages/cli/src/commands/verify.test.ts` — readiness, filesystem probe bounds, and
@@ -150,9 +157,8 @@ The command contract is exercised by:
 
 The following are roadmap items only; they are not implemented CLI contracts:
 
-- handoff validate, publish, list, show, and complete/archive commands;
 - a dedicated incident-list view;
-- machine-readable errors, per-command help, and `--version`.
+- machine-readable error envelopes, per-command help, and `--version`.
 
 Implementation order and acceptance criteria are maintained in
 [`docs/planning/CLI-MODE-COMPLETION-PLAN.md`](../docs/planning/CLI-MODE-COMPLETION-PLAN.md).

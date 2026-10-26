@@ -5,7 +5,7 @@ Proprietary and confidential.
 
 # Implementation Plan — trinoris-multi-agents
 
-**Status:** Protocol hardening complete; CLI contract reconciled and completion is underway
+**Status:** Protocol hardening complete; CLI handoff lifecycle implemented locally
 **Updated:** 2026-10-26
 **Repository version:** 0.2.0
 **Current baseline:** `2f6dc5a` (`ci: refresh security workflow runtimes`)
@@ -25,7 +25,7 @@ The repository contains three TypeScript packages:
 | --- | --- |
 | `@trinoris/agent-core` | Protocol contract, validation, types, and handoff parsing |
 | `@trinoris/agent-sdk` | Guarded coordination state, scope leases, handoff claims, incidents, and recovery |
-| `@trinoris/agent-cli` | Setup, verification, status, acquire/release, claim, diagnosis, and recovery commands |
+| `@trinoris/agent-cli` | Setup, verification, lease lifecycle, handoff lifecycle, diagnosis, and recovery commands |
 
 Protocol 3 stores all local coordination material in the Git-ignored `.trinoris/`
 directory. Setup installs the package-owned `PROTOCOL.md`, writes its version and digest,
@@ -105,12 +105,13 @@ reopen criteria are met. The CLI completion roadmap is
 [`CLI-MODE-COMPLETION-PLAN.md`](CLI-MODE-COMPLETION-PLAN.md). Phase 0 reconciled
 [`specs/06-cli-interface.md`](../../specs/06-cli-interface.md) to the shipped command
 surface and marked the older interactive/daemon proposal as historical. Phase 1, stable
-mutation identity and setup-duration options, is complete. Phase 2, the guarded handoff
-lifecycle, is next.
+mutation identity and setup-duration options, and Phase 2, the guarded handoff lifecycle,
+are complete locally. Phase 3, read-only incident visibility and command usability, is next.
 
-The full local suite passed after Phase 1 with 126 tests across 13 files: core (36), SDK
-(34), and CLI (56). Turbo rebuilt all three packages; CLI integration tests used real child
-processes and filesystem fixtures.
+The Phase 2 full local suite passed uncached: 135 tests across 14 files — core (36), SDK
+(42), and CLI (57). Turbo rebuilt all three packages. CLI integration tests used real child
+processes and filesystem fixtures. The suite was run locally on 2026-10-26; Windows CI
+remains the cross-platform verification gate for this change.
 
 ## Change and verification rules
 

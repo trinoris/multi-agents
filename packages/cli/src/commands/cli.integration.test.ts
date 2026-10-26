@@ -9,11 +9,73 @@ const bin = fileURLToPath(new URL('../../dist/bin.js', import.meta.url));
 const roots: string[] = [];
 function fixture() { const root = mkdtempSync(join(tmpdir(), 'agent-cli-journey-')); roots.push(root); return root; }
 function run(root: string, command: string, args: string[] = []) {
-  const result = spawnSync(process.execPath, [bin, command, '--work-dir', root, '--json', ...args], { encoding: 'utf8', timeout: 20000 });
+  const result = spawnSync(process.execPath, [bin, ...command.split(' '), '--work-dir', root, '--json', ...args], { encoding: 'utf8', timeout: 20000 });
   if (result.error) throw result.error;
   return { code: result.status, stdout: result.stdout, stderr: result.stderr, data: () => JSON.parse(result.stdout) };
 }
 const who = ['--agent-class', 'codex', '--instance', 'codex-a'];
+const handoffDraft = `---
+from_class: codex
+from_instance: codex-a
+to_class: claude
+to_instance: any
+scopes: [packages, tests]
+locks_released: true
+---
+# Context Handoff
+
+Updated: 2026-10-26 13:30 UTC
+Task: Review invoice workflow
+Status: ready-for-review
+Branch: main
+Base commit: abc1234
+
+## Goal
+
+Review the workflow.
+
+## User Constraints
+
+Keep the API stable.
+
+## Current State
+
+The implementation is ready.
+
+## Changes
+
+Validation was updated.
+
+## Decisions
+
+Keep evidence immutable.
+
+## Verification
+
+| Check | Result | Scope / limitations |
+| --- | --- | --- |
+| Unit tests | PASS | Fixture |
+
+## Failed Attempts
+
+None.
+
+## Blockers and Unknowns
+
+None.
+
+## Next Actions
+
+1. Review edge cases.
+
+## Resume Instructions
+
+Read the branch and run tests.
+
+## References
+
+See the plan.
+`;
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 describe('SG-01..09 shipped CLI journeys', () => {
   it('sets up, verifies the real filesystem, acquires, checks, renews and releases a generation', () => {
@@ -63,6 +125,21 @@ describe('SG-01..09 shipped CLI journeys', () => {
     expect(run(invalid, 'setup', ['--lease-minutes', '0']).code).toBe(1);
     expect(existsSync(join(invalid, '.trinoris'))).toBe(false);
   });
+  it('runs the complete handoff lifecycle through the CLI', () => {
+    const root = fixture(); expect(run(root, 'setup').code).toBe(0);
+    writeFileSync(join(root, '.trinoris/handoff/drafts/review.md'), handoffDraft);
+    expect(run(root, 'handoff validate', ['--note', 'review.md']).data()).toMatchObject({ ok: true, note: { status: 'ready-for-review' } });
+    const published = run(root, 'handoff publish', [...who, '--note', 'review.md']);
+    expect(published.code, published.stderr).toBe(0); expect(published.data()).toMatchObject({ ok: true, alreadyPublished: false });
+    const claude = ['--agent-class', 'claude', '--instance', 'claude-b'];
+    expect(run(root, 'handoff list', claude).data()).toEqual(expect.arrayContaining([expect.objectContaining({ filename: 'review.md', location: 'inbox', valid: true })]));
+    expect(run(root, 'handoff claim', [...claude, '--note', 'review.md']).code).toBe(0);
+    expect(run(root, 'handoff show', [...claude, '--location', 'active', '--note', 'review.md']).data()).toMatchObject({ ok: true, note: { status: 'ready-for-review' } });
+    const completed = run(root, 'handoff complete', [...claude, '--note', 'review.md', '--outcome', 'Review passed.']);
+    expect(completed.code, completed.stderr).toBe(0); expect(completed.data()).toMatchObject({ ok: true, alreadyCompleted: false });
+    expect(readFileSync(join(root, '.trinoris/archive/review.md'), 'utf8')).toContain('Completion outcome: Review passed.');
+    expect(run(root, 'handoff complete', [...claude, '--note', 'review.md', '--outcome', 'Review passed.']).data()).toMatchObject({ ok: true, alreadyCompleted: true });
+  }, 30000);
   it('diagnoses a marker without deleting it and requires explicit stopped-actor recovery', () => {
     const root = fixture(); run(root, 'setup');
     const marker = join(root, '.trinoris/.mutation'); mkdirSync(marker);

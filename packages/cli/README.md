@@ -54,6 +54,9 @@ node packages/cli/dist/bin.js setup --work-dir /path/to/repository
 node packages/cli/dist/bin.js verify --work-dir /path/to/repository --trials 5 --concurrency 4
 ```
 
+To set non-default lease policy during setup, pass `--lease-minutes <1..1440>` and
+`--grace-minutes <0..60>`. The renewal threshold is set to one third of the lease duration.
+
 Setup installs a complete package-owned protocol and digest. It retains existing regular
 files unless `--force` is explicit, refuses links/special files, and reports replacements.
 It never copies instructions from an arbitrary target repository's `specs/` directory.
@@ -67,9 +70,10 @@ that mkdir is non-atomic. Repeat on the same filesystem with worker permission.
 
 ## Lease lifecycle
 
-Use a stable explicit instance for the session. Acquire returns a new **generation**;
-retain it and pass it to every subsequent lease operation. Do not read the current holder
-and adopt someone else's generation as a replacement for the one returned to you.
+Every stateful command requires explicit `--agent-class` and `--instance` values. Reuse the
+same pair for the session. Acquire returns a new **generation**; retain it and pass it to
+every subsequent lease operation. Do not read the current holder and adopt someone else's
+generation as a replacement for the one returned to you.
 
 ```bash
 trinoris-agent acquire --work-dir /repo --agent-class codex-gpt-6 \

@@ -9,8 +9,9 @@ import { setup } from './commands/setup.js';
 import { verify } from './commands/verify.js';
 
 const common = ['work-dir', 'agent-class', 'instance', 'json'];
+const identityCommands = new Set(['acquire', 'acquire-many', 'check', 'renew', 'release', 'break', 'claim', 'recover']);
 const allowed: Record<string, string[]> = {
-  setup: ['force', 'agent-classes', 'scopes'], verify: ['trials', 'concurrency'], status: ['scope'],
+  setup: ['force', 'agent-classes', 'scopes', 'lease-minutes', 'grace-minutes'], verify: ['trials', 'concurrency'], status: ['scope'],
   acquire: ['scope', 'task'], 'acquire-many': ['scopes'], check: ['scope', 'generation'],
   renew: ['scope', 'generation'], release: ['scope', 'generation'], break: ['scope', 'reason'],
   claim: ['note', 'from', 'to'], diagnose: [], recover: ['marker', 'operation', 'reason', 'confirm-stopped'],
@@ -18,7 +19,8 @@ const allowed: Record<string, string[]> = {
 const booleans = new Set(['json', 'force', 'confirm-stopped']);
 const usage = `trinoris-agent — cooperative local coordination, protocol 3
 
-setup [--force]                      Install the package-owned protocol and configuration
+setup [--force] [--lease-minutes N --grace-minutes N]
+                                    Install the protocol and set bounded lease policy
 verify [--trials N --concurrency N]   Check protocol readiness and actual mkdir behavior
 status [--scope S]                   Inspect recorded leases
 acquire --scope S [--task T]         Acquire; retain the returned generation
@@ -33,7 +35,8 @@ recover --marker M --operation ID --reason R --confirm-stopped
                                     Offline operator recovery, never automatic
 
 Common: --work-dir DIR --agent-class CLASS --instance ID --json
-Use the same explicit instance and generation for each lease operation.
+Stateful commands require explicit --agent-class and stable --instance values.
+Reuse the same instance and retain the generation for each lease lifecycle.
 Exit: 0 success, 1 invalid/uncertain, 3 contention (do not spin), 4 lease lost.
 Locks are advisory; they do not authenticate agents or fence an uncoordinated writer.`;
 
@@ -53,6 +56,9 @@ async function main() {
   const [command, ...args] = process.argv.slice(2);
   if (!command || command === '--help' || command === '-h') { console.log(usage); return; }
   const opts = parse(command, args);
+  if (identityCommands.has(command) && (typeof opts['agent-class'] !== 'string' || typeof opts.instance !== 'string')) {
+    throw new Error('Stateful commands require --agent-class and --instance; reuse the same values across related commands');
+  }
   const required = (key: string): string => { const value = opts[key]; if (typeof value !== 'string') throw new Error(`--${key} is required`); return value; };
   const value = (key: string, fallback: string) => typeof opts[key] === 'string' ? opts[key] as string : fallback;
   const output = (data: unknown, readable?: string) => console.log(opts.json ? JSON.stringify(data) : terminalText(readable ?? JSON.stringify(data)));
@@ -61,7 +67,14 @@ async function main() {
   const instance = opts.instance ? required('instance') : generateInstanceId(agentClass, undefined, randomUUID);
   identifier(instance, 'instance'); const owner = { agent_class: agentClass, agent_instance: instance };
   if (command === 'setup') {
-    const result = setup({ workDir, force: opts.force === true, ...(opts.scopes ? { scopes: required('scopes').split(',') } : {}), ...(opts['agent-classes'] ? { agentClasses: required('agent-classes').split(',') } : {}) });
+    const result = setup({
+      workDir,
+      force: opts.force === true,
+      ...(opts.scopes ? { scopes: required('scopes').split(',') } : {}),
+      ...(opts['agent-classes'] ? { agentClasses: required('agent-classes').split(',') } : {}),
+      ...(opts['lease-minutes'] ? { leaseMinutes: Number(required('lease-minutes')) } : {}),
+      ...(opts['grace-minutes'] ? { graceMinutes: Number(required('grace-minutes')) } : {}),
+    });
     output(result); return;
   }
   if (command === 'verify') {

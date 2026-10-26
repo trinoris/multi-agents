@@ -33,4 +33,9 @@ describe('SG-04 bounded dates and routing metadata', () => {
     config.scopes.grace_period_minutes = 5; config.scopes.registry = ['api', 'api'];
     expect(() => validateConfig(config)).toThrow();
   });
+  it('includes a registered scope for package source and package-local tests', () => {
+    expect(defaultConfig().scopes.registry).toEqual([
+      'engine', 'webapp', 'api', 'agents', 'packages', 'infra', 'specs', 'tests', 'root', 'git',
+    ]);
+  });
 });

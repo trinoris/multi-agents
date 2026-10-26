@@ -121,6 +121,7 @@ export const DEFAULT_SCOPE_REGISTRY = [
   'webapp',
   'api',
   'agents',
+  'packages',
   'infra',
   'specs',
   'tests',

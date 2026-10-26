@@ -38,6 +38,31 @@ describe('SG-01..09 shipped CLI journeys', () => {
     expect(run(root, 'acquire', ['--arbitrary', 'value']).code).toBe(1);
     expect(run(root, 'check', [...who, '--scope', 'api']).code).toBe(1);
   });
+  it.each([
+    ['missing both', ['--scope', 'api']],
+    ['missing instance', ['--agent-class', 'codex', '--scope', 'api']],
+    ['missing class', ['--instance', 'codex-a', '--scope', 'api']],
+  ])('requires explicit identity for a stateful command (%s)', (_label, args) => {
+    const root = fixture(); run(root, 'setup');
+    const result = run(root, 'acquire', args);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('Stateful commands require --agent-class and --instance');
+    expect(existsSync(join(root, '.trinoris/locks/api.lock'))).toBe(false);
+  });
+  it('sets supported lease values during setup and rejects invalid values before writing', () => {
+    const configured = fixture();
+    const result = run(configured, 'setup', ['--lease-minutes', '30', '--grace-minutes', '2']);
+    expect(result.code, result.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(join(configured, '.trinoris/config.json'), 'utf8')).scopes).toMatchObject({
+      lease_duration_minutes: 30,
+      renewal_threshold_minutes: 10,
+      grace_period_minutes: 2,
+    });
+
+    const invalid = fixture();
+    expect(run(invalid, 'setup', ['--lease-minutes', '0']).code).toBe(1);
+    expect(existsSync(join(invalid, '.trinoris'))).toBe(false);
+  });
   it('diagnoses a marker without deleting it and requires explicit stopped-actor recovery', () => {
     const root = fixture(); run(root, 'setup');
     const marker = join(root, '.trinoris/.mutation'); mkdirSync(marker);

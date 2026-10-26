@@ -105,11 +105,12 @@ reopen criteria are met. The CLI completion roadmap is
 [`CLI-MODE-COMPLETION-PLAN.md`](CLI-MODE-COMPLETION-PLAN.md). Phase 0 reconciled
 [`specs/06-cli-interface.md`](../../specs/06-cli-interface.md) to the shipped command
 surface and marked the older interactive/daemon proposal as historical. Phase 1, stable
-mutation identity and setup-duration options, is next.
+mutation identity and setup-duration options, is complete. Phase 2, the guarded handoff
+lifecycle, is next.
 
-The full local suite was rerun on commit `992c8ed` after the threat-review documentation:
-121 tests passed across core (35), SDK (34), and CLI (52). Turbo rebuilt all three package
-artifacts during the run.
+The full local suite passed after Phase 1 with 126 tests across 13 files: core (36), SDK
+(34), and CLI (56). Turbo rebuilt all three packages; CLI integration tests used real child
+processes and filesystem fixtures.
 
 ## Change and verification rules
 

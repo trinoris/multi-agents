@@ -147,6 +147,7 @@ string comparison.
 | `webapp` | `webapp/` |
 | `api` | `api/`, `callbacks/` |
 | `agents` | `chat-agent/`, `mailbox/` |
+| `packages` | `packages/` — package source, package-local tests, and package metadata |
 | `infra` | `infrastructure/`, `scripts/`, CI config |
 | `specs` | `specs/`, `docs/` |
 | `tests` | `tests/` at repo root |

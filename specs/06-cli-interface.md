@@ -51,14 +51,14 @@ The current top-level help is available with `trinoris-agent --help` or `trinori
 | Option | Current behavior |
 | --- | --- |
 | `--work-dir <path>` | Target checkout; defaults to the current working directory. |
-| `--agent-class <name>` | Coordination label; currently defaults to `claude-opus-5`. |
-| `--instance <id>` | Explicit coordination label. If omitted, a random instance ID is generated for that process invocation. |
+| `--agent-class <name>` | Coordination label. Stateful commands require it explicitly; other commands currently default it to `claude-opus-5`. |
+| `--instance <id>` | Explicit coordination label. Stateful commands require it explicitly; other commands generate an unused per-invocation value when omitted. |
 | `--json` | Emits successful command results as JSON. Parse and runtime errors remain bounded plain text on stderr. |
 
-For any lease lifecycle spanning multiple invocations, pass the same `--agent-class` and
-`--instance` each time, and retain the generation returned by `acquire` or `break`. The
-default instance changes between CLI invocations and is not suitable for a multi-command
-lease lifecycle. These labels do not prove who is making the call.
+The stateful command set (`acquire`, `acquire-many`, `check`, `renew`, `release`, `break`,
+`claim`, and `recover`) rejects a missing `--agent-class` or `--instance` before it changes
+state. Reuse the same explicit labels across related commands, and retain the generation
+returned by `acquire` or `break`. These labels do not prove who is making the call.
 
 The CLI has no user config file, `--config` option, environment-variable precedence, or
 persisted identity profile. Installed coordination settings are read from the selected
@@ -68,7 +68,7 @@ checkout's `.trinoris/config.json` by the SDK.
 
 | Command | Options | Effect |
 | --- | --- | --- |
-| `setup` | `--force`, `--agent-classes <csv>`, `--scopes <csv>` | Installs protocol 3 files and instructions in the target checkout. `--force` replaces eligible generated files and refuses retained active locks. |
+| `setup` | `--force`, `--agent-classes <csv>`, `--scopes <csv>`, `--lease-minutes <n>`, `--grace-minutes <n>` | Installs protocol 3 files and instructions in the target checkout. `--force` replaces eligible generated files and refuses retained active locks. Lease and grace values use core bounds. |
 | `verify` | `--trials <n>`, `--concurrency <n>` | Checks installed structure, configuration, protocol digest, ignore rule, and real mkdir behavior. Defaults to 50 trials and 8 workers. It uses bounded temporary worker activity. |
 | `status` | `--scope <scope>` | Inspects one registered lease or all lease directories. It does not list handoffs or all incident records. |
 | `acquire` | `--scope <scope>`, optional `--task <text>` | Acquires one lease and returns its generation. |
@@ -81,8 +81,9 @@ checkout's `.trinoris/config.json` by the SDK.
 | `diagnose` | none | Read-only inspection of abandoned mutation, recovery, break, and claim markers. |
 | `recover` | `--marker <path>`, `--operation <id or unknown>`, `--reason <text>`, `--confirm-stopped` | Explicitly recovers an exact diagnosed marker after all affected actors have stopped. |
 
-Lease duration and grace use the values in `.trinoris/config.json`; the CLI currently has no
-setup flags for changing those values. Configuration rejects `heartbeat.enabled: true`.
+Lease duration and grace use `.trinoris/config.json`. `setup --lease-minutes 30 --grace-minutes 5`
+sets those values; renewal threshold is set to one third of the lease
+duration. Configuration rejects `heartbeat.enabled: true`.
 
 ## Command behavior and exit codes
 
@@ -151,8 +152,6 @@ The following are roadmap items only; they are not implemented CLI contracts:
 
 - handoff validate, publish, list, show, and complete/archive commands;
 - a dedicated incident-list view;
-- explicit stable mutation identity defaults or documented environment defaults;
-- CLI flags for setup lease duration and grace;
 - machine-readable errors, per-command help, and `--version`.
 
 Implementation order and acceptance criteria are maintained in

@@ -5,7 +5,7 @@ Proprietary and confidential.
 
 # CLI mode completion plan
 
-**Status:** Phase 0 complete; implementation roadmap proposed
+**Status:** Phases 0 and 1 complete; implementation roadmap in progress
 **Reviewed:** 2026-10-26
 **Baseline:** local commit `992c8ed`; 121 package tests passed on this checkout
 
@@ -37,21 +37,23 @@ CLI.
 
 ## Gaps to close
 
-1. **The CLI spec is stale.** `specs/06-cli-interface.md` still contains proposed
-   interactive/once/daemon modes, commands such as `handoffs`, `incidents`, and `archive`,
-   environment/config precedence, and polling behavior that the implementation does not
-   provide and protocol 3 must not provide. It is labeled as a current proposal even though
-   its header also calls much of it historical.
+1. **Resolved in Phase 0 — CLI spec was stale.** `specs/06-cli-interface.md` contained
+   proposed interactive/once/daemon modes, commands such as `handoffs`, `incidents`, and
+   `archive`, environment/config precedence, and polling behavior that the implementation
+   does not provide and protocol 3 must not provide. It was labeled as a current proposal
+   even though its header also called much of it historical.
 2. **The handoff lifecycle is incomplete in CLI.** Users create and finish Markdown notes
    outside the CLI. The CLI can claim a note but cannot validate, list, inspect, publish, or
    complete/archive one through the same guarded contract.
 3. **Read-only visibility is partial.** `status` shows lease state and `diagnose` shows
    abandoned operation markers, but there are no dedicated inbox or incident-list views.
-4. **Identity defaults are easy to misuse.** A command without `--agent-class` silently
-   uses `claude-opus-5`; a command without `--instance` creates a new random instance. That
-   is convenient for one-shot reads, but confusing across stateful command sequences.
-5. **CLI setup cannot set all supported lease values.** SDK setup accepts lease and grace
-   durations, while the CLI parser exposes only agent classes and scope names.
+4. **Resolved in Phase 1 — identity defaults were easy to misuse.** A command without
+   `--agent-class` silently used `claude-opus-5`; a command without `--instance` created a
+   new random instance. That is convenient for one-shot reads, but confusing across
+   stateful command sequences.
+5. **Resolved in Phase 1 — CLI setup could not set all supported lease values.** SDK setup
+   accepts lease and grace durations, while the CLI parser exposed only agent classes and
+   scope names.
 6. **Error automation is weaker than success automation.** `--json` affects successful
    output, but parse/runtime failures are plain text on stderr and do not expose a stable
    machine-readable error shape.
@@ -79,34 +81,35 @@ CLI.
 
 ### Phase 0 — reconcile the contract first — complete
 
-- Rewrite `specs/06-cli-interface.md` to describe the actual protocol 3 CLI and its
-  intended completed command surface.
+- Rewrite `specs/06-cli-interface.md` to describe the actual protocol 3 CLI and its shipped
+  command surface.
 - Move obsolete interactive/once/daemon examples into a clearly marked historical archive
   or remove them after preserving necessary design history.
 - Keep the protocol boundary and no-spin rule explicit; do not treat old proposed commands
   as a promise to implement daemon behavior.
-- Add a spec-to-command matrix linking every public CLI command to implementation and test.
+- Add a spec-to-command matrix linking every shipped CLI command to implementation and test.
 
 **Exit:** no current spec section promises a command, mode, config source, or behavior the
 CLI does not implement. The current command contract is now in `specs/06-cli-interface.md`;
 the older interaction/daemon proposal remains in `docs/archive/CLI-SPEC-2026-10-25.md`.
 
-### Phase 1 — identity and configuration safety
+### Phase 1 — identity and configuration safety — complete
 
 - Keep read-only commands usable without an explicit instance.
-- For mutations, require an explicit stable `--instance` and `--agent-class`, or accept
-  equivalent documented environment defaults that remain stable across shell commands.
-  Do not silently assign a tool-specific identity to a mutation.
+- For stateful commands, require an explicit stable `--instance` and `--agent-class`.
+  Environment identity defaults are not supported. Do not silently assign a tool-specific
+  identity to a mutation.
 - Add CLI flags for supported setup lease duration and grace values, with the same bounds
   as core validation.
 - Define precedence only for supported inputs; do not invent a second persistent config
   file or read configuration from a parent directory.
-- Define stable JSON success and error envelopes, preserving current exit codes and keeping
-  diagnostics on stderr.
+- Keep current successful JSON results and exit codes. Error-envelope improvements are
+  assigned to Phase 3.
 
-**TDD exit:** tests prove missing/unstable mutation identity is rejected, stable env/flag
-identity is resolved as documented, bad durations fail before filesystem changes, and JSON
-errors remain parseable without leaking control characters or secrets.
+**TDD exit:** tests prove incomplete mutation identity is rejected before state changes,
+explicit identity works across the lease lifecycle, and invalid setup durations fail before
+filesystem changes. The fixed registry includes `packages/`, so package code and local tests
+can be coordinated under a defined scope.
 
 ### Phase 2 — complete the handoff lifecycle
 
@@ -140,6 +143,8 @@ cross-platform filename behavior.
   lease states without implying authenticated identity.
 - Add per-command `--help`, top-level `--version`, and actionable examples generated from
   the same command metadata used for parsing.
+- Define a stable JSON error envelope and test bounded, escaped errors without leaking
+  control characters or secrets.
 
 **TDD exit:** CLI subprocess tests assert exact JSON schema, bounded terminal text, no
 mutation on read-only paths, and clear handling of missing or malformed state.
@@ -170,6 +175,6 @@ required matrix jobs pass; no daemon/heartbeat/network behavior is implied.
 
 ## Current next action
 
-Start with Phase 1: add TDD coverage for stable mutation identity and setup duration flags.
-Keep these changes within protocol 3's one-shot, local coordination boundary. Implement the
-handoff lifecycle in Phase 2 before adding convenience commands.
+Continue with Phase 2: implement the guarded handoff lifecycle before adding read-only
+visibility and convenience commands. Keep the work within protocol 3's one-shot, local
+coordination boundary.

@@ -1,8 +1,10 @@
 import fs from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as sdk from './lock.js';
+import { readText } from './filesystem.js';
 
 const roots: string[] = [];
 const a = { agent_instance: 'codex-a', agent_class: 'codex' };
@@ -34,6 +36,34 @@ describe('SG-01 filesystem containment', () => {
     const p = fixture(); const outside = join(p.base, 'outside'); fs.mkdirSync(outside);
     fs.rmSync(join(p.root, 'locks'), { recursive: true }); fs.symlinkSync(outside, join(p.root, 'locks'), 'junction');
     expect(() => take(p)).toThrow(); expect(fs.readdirSync(outside)).toEqual([]);
+  });
+  it('rejects final and dangling links and fails closed when a checked file disappears', () => {
+    const p = fixture(); const target = join(p.base, 'target'); const linked = join(p.root, 'linked');
+    fs.writeFileSync(target, 'keep'); fs.symlinkSync(target, linked);
+    expect(() => readText(p.root, linked)).toThrow(); expect(fs.readFileSync(target, 'utf8')).toBe('keep');
+    const missingTarget = join(p.base, 'missing'); const dangling = join(p.root, 'dangling'); fs.symlinkSync(missingTarget, dangling);
+    expect(() => readText(p.root, dangling)).toThrow(); expect(fs.existsSync(missingTarget)).toBe(false);
+
+    const disappearing = join(p.root, 'disappearing'); fs.writeFileSync(disappearing, 'content');
+    const open = fs.openSync;
+    vi.spyOn(fs, 'openSync').mockImplementation(((path: any, ...args: any[]) => {
+      if (path === disappearing) fs.unlinkSync(disappearing);
+      return (open as any)(path, ...args);
+    }) as any);
+    expect(() => readText(p.root, disappearing)).toThrow();
+    vi.restoreAllMocks();
+  });
+  it.skipIf(process.platform === 'win32')('rejects a socket file before opening it as state', async context => {
+    const p = fixture(); const socketPath = join(p.root, 'socket'); const server = createServer();
+    try {
+      await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(socketPath, resolve); });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EPERM' || code === 'EACCES' || code === 'ENOTSUP') { context.skip(); return; }
+      throw error;
+    }
+    try { expect(() => readText(p.root, socketPath)).toThrow(/regular file/i); }
+    finally { await new Promise<void>(resolve => server.close(() => resolve())); }
   });
 });
 

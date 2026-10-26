@@ -1,6 +1,6 @@
 ---
 name: agent-handoff
-description: Coordinate cooperating agents in a shared local working tree.
+description: Use before editing a shared working tree with another agent, or when drafting, routing, claiming, or completing a handoff.
 ---
 
 - Read .trinoris/PROTOCOL.md before editing. This is a cooperative local protocol, not a sandbox.
@@ -11,5 +11,7 @@ description: Coordinate cooperating agents in a shared local working tree.
 - Acquire scopes in registry order and use the git scope for Git mutations.
 - Claim only notes addressed to you from .trinoris/handoff/for-<class>/; active notes live in .trinoris/active/<instance>/.
 - Write protocol 3 handoffs with locks_released: true and every required section in .trinoris/PROTOCOL.md.
+- Codex follows AGENTS.md; Claude Code follows CLAUDE.md and the agent-handoff project skill. Both point to the same protocol and template.
+- Copy .trinoris/handoff/TEMPLATE.md to .trinoris/handoff/drafts/, replace every template field, then validate and publish with the CLI.
 - Markers are not stolen by age. Diagnose, stop affected actors, then explicitly recover.
 - Heartbeat/daemon support is disabled in protocol 3.

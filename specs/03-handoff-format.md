@@ -20,7 +20,15 @@ MA-T results remain evidence of their recorded runs, not proof of the current SD
 filesystem. Keep stable MA-T IDs when adding current regressions.
 
 
-## Status: PROPOSED
+## Historical design status: PROPOSED
+
+This label belongs to the original design draft. Protocol 3 is implemented and enforced by
+the shipped core, SDK, and CLI. Setup now installs a copy-ready handoff skeleton at
+`.trinoris/handoff/TEMPLATE.md`; Codex discovers it through `AGENTS.md`, and Claude Code
+through `.claude/skills/agent-handoff/SKILL.md`. Both entry points direct agents to the
+same template, protocol, and CLI validation flow. Replace all template fields, validate the
+draft, release held scopes, then publish it. The CLI is the schema gate; prose instructions
+alone do not make a malformed note claimable.
 
 The lock mechanism keeps two agents from colliding. The handoff is what makes them
 actually collaborate: it is the only channel through which one agent's understanding

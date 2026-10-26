@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cleanEnvironment, parseReleaseArgs, commandInvocation, runRelease } from '../../../../scripts/release.mjs';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseTarListing, validatePackedFiles } from '../../../../scripts/artifacts.mjs';
@@ -13,6 +13,37 @@ const clean = () => [
   ...['index.js', 'index.cjs', 'index.d.ts', 'index.d.cts'].map(n => ({ name: `package/dist/${n}`, type: 'file', content: 'export {};' })),
 ];
 describe('SG-08 release credential and artifact boundary', () => {
+  it('retains failed test stdout and stderr in the dry-run evidence bundle', () => {
+    const root = fileURLToPath(new URL('../../../../', import.meta.url));
+    const outputRoot = join(root, '.release-artifacts'); mkdirSync(outputRoot, { recursive: true });
+    const before = new Set(readdirSync(outputRoot));
+    const pnpmVersion = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).packageManager.split('@')[1];
+    const run = (command: string, args: string[]) => {
+      if (command === 'git' && args[0] === 'rev-parse') return 'fixture-commit';
+      if (command === 'git' && args[0] === 'status') return '';
+      if (command === 'git' && args[0] === 'diff') return '';
+      if (command === 'pnpm' && args[0] === '--version') return pnpmVersion;
+      if (command === 'pnpm' && args[0] === 'install') return '';
+      if (command === 'pnpm' && args[0] === 'audit') return JSON.stringify({ metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 0 } } });
+      if (command === 'pnpm' && args[0] === 'run' && args[1] === 'test') {
+        throw Object.assign(new Error('simulated test failure'), { stdout: Buffer.from('TEST_STDOUT\n'), stderr: Buffer.from('TEST_STDERR\n') });
+      }
+      throw new Error(`Unexpected release command: ${command} ${args.join(' ')}`);
+    };
+    try {
+      expect(() => runRelease(['--dry-run'], root, run)).toThrow(/simulated test failure/);
+      const created = readdirSync(outputRoot).filter(name => !before.has(name));
+      expect(created).toHaveLength(1);
+      const dir = join(outputRoot, created[0]);
+      expect(readFileSync(join(dir, 'tests.log'), 'utf8')).toContain('TEST_STDOUT');
+      expect(readFileSync(join(dir, 'tests.log'), 'utf8')).toContain('TEST_STDERR');
+      expect(JSON.parse(readFileSync(join(dir, 'release.json'), 'utf8'))).toMatchObject({ status: 'failed', published: [] });
+      rmSync(dir, { recursive: true, force: true });
+    } finally {
+      for (const name of readdirSync(outputRoot)) if (!before.has(name)) rmSync(join(outputRoot, name), { recursive: true, force: true });
+    }
+  });
+
   it('normalizes Windows tar output without accepting traversal paths', () => {
     expect(parseTarListing('package/package.json\r\npackage\\dist\\index.js\r\n')).toEqual([
       { name: 'package/package.json', rawName: 'package/package.json' },

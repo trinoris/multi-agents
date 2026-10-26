@@ -19,8 +19,18 @@ unsupported. Git mutations use the conservative mutually exclusive `git` scope. 
 MA-T results remain evidence of their recorded runs, not proof of the current SDK or a new
 filesystem. Keep stable MA-T IDs when adding current regressions.
 
+Setup currently adds managed, idempotent pointers to `AGENTS.md` for Codex and `CLAUDE.md`
+for Claude Code, preserving existing text around each block. It also installs
+`.claude/skills/agent-handoff/SKILL.md` with a clear description of when Claude should use
+it. Both entry points point to `.trinoris/PROTOCOL.md` and
+`.trinoris/handoff/TEMPLATE.md`; verify requires those pointers to remain present.
 
-## Status: PROPOSED
+
+## Historical design status: PROPOSED
+
+The proposal below describes the original binding design. The current generated entry
+points and setup behavior are summarized above; old command examples are historical and
+must not replace the CLI contract in specs 03, 05, and 06.
 
 How each tool is bound to the protocol. The protocol is useless if an agent has to be told
 about it by the human on every session — the binding has to be something each tool loads on

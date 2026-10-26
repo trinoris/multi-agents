@@ -193,7 +193,7 @@ export async function verify(workDir: string, trials = 50, concurrency = 8, opti
     const expected = createHash('sha256').update(PROTOCOL_TEXT).digest('hex');
     protocolOk = contract !== null && meta?.version === PROTOCOL_VERSION && meta?.sha256 === expected && createHash('sha256').update(contract).digest('hex') === expected;
     if (!protocolOk) notes.push('protocol missing or divergent: run setup and inspect the package-owned contract');
-    for (const path of ['AGENTS.md', '.claude/skills/agent-handoff/SKILL.md']) {
+    for (const path of ['AGENTS.md', 'CLAUDE.md', '.claude/skills/agent-handoff/SKILL.md']) {
       if (!readText(workDir, join(workDir, path))?.includes('.trinoris/PROTOCOL.md')) { protocolOk = false; notes.push('missing generated protocol pointer'); }
     }
   } catch (e) { notes.push(`protocol not ready: ${e instanceof Error ? e.message : String(e)}`); }

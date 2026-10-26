@@ -33,6 +33,12 @@ export function execute(command, args, options) {
   const invocation = commandInvocation(command, args, options?.env);
   return execFileSync(invocation.command, invocation.args, { encoding: 'utf8', stdio: 'pipe', maxBuffer: 8_000_000, ...options });
 }
+function commandOutput(error) {
+  const output = error && typeof error === 'object' ? error : {};
+  const text = value => Buffer.isBuffer(value) ? value.toString('utf8') : typeof value === 'string' ? value : '';
+  const streams = Array.isArray(output.output) ? output.output : [];
+  return `${text(output.stdout ?? streams[1])}${text(output.stderr ?? streams[2])}`;
+}
 export function runRelease(args, root = dirname(dirname(fileURLToPath(import.meta.url))), run = execute) {
   const { dryRun } = parseReleaseArgs(args);
   if (Number(process.versions.node.split('.')[0]) < 20) throw new Error('Node.js 20+ is required for release tooling');
@@ -58,7 +64,12 @@ export function runRelease(args, root = dirname(dirname(fileURLToPath(import.met
     const audit = gate('pnpm', ['audit', '--audit-level=high', '--json']);
     fs.writeFileSync(join(outputDir, 'audit.json'), audit);
     console.log('Running uncached package tests and integration journeys...');
-    fs.writeFileSync(join(outputDir, 'tests.log'), gate('pnpm', ['run', 'test', '--force']));
+    const testsLog = join(outputDir, 'tests.log');
+    try { fs.writeFileSync(testsLog, gate('pnpm', ['run', 'test', '--force'])); }
+    catch (error) {
+      fs.writeFileSync(testsLog, commandOutput(error));
+      throw error;
+    }
     const manifests = RELEASE_PACKAGE_SPECS.map(s => JSON.parse(fs.readFileSync(join(root, 'packages', s.directory, 'package.json'), 'utf8')));
     const versions = Object.fromEntries(manifests.map(p => [p.name, p.version]));
     const pending = [];

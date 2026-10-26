@@ -97,6 +97,15 @@ agent use the same `.trinoris/` directory and follow that protocol. Setup adds t
 to `.gitignore`. Do not rely on locks unless
 verification passes for the checkout and filesystem configuration they will use.
 
+Setup adds managed, idempotent pointers to `AGENTS.md` for Codex and `CLAUDE.md` for Claude
+Code, preserving existing project instructions. Claude Code also gets a project skill at
+`.claude/skills/agent-handoff/SKILL.md`.
+The skill description tells Claude when to use it. Both agents follow the same protocol and
+copy-ready `.trinoris/handoff/TEMPLATE.md`. Agents fill the template under
+`.trinoris/handoff/drafts/`, run `trinoris-agent handoff validate`, release their scopes,
+and publish with `trinoris-agent handoff publish`. The receiver follows the routed inbox,
+claim, and completion steps in the same protocol; validation rejects malformed notes.
+
 Once the CLI package is published, install it globally with:
 
 ```bash

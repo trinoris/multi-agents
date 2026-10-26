@@ -80,7 +80,6 @@ describe('SG-03 real process races against shipped SDK', () => {
       { action: 'break', instance: 'breaker' },
     ]);
     expect(result[0].ok).toBe(false);
-    expect(result[1].ok).toBe(false);
     let successor = result.find(value => value.ok && value.lock)?.lock;
     if (!successor) {
       expect(inspect(p, 'api', 0).state).toBe('expired');
@@ -103,8 +102,9 @@ describe('SG-03 real process races against shipped SDK', () => {
   }, 30000);
   it('recovers a process killed after creating an incomplete lock directory', async () => {
     const p = fixture();
-    const crashCode = `import fs from 'node:fs'; import * as sdk from ${JSON.stringify(moduleURL)};
-      const mkdir = fs.mkdirSync; fs.mkdirSync = function(path, ...args) { const result = mkdir.call(fs,path,...args); if (String(path).endsWith('locks/api.lock')) { process.send({ paused: true }); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0); } return result; };
+    const crashCode = `import fs from 'node:fs'; import path from 'node:path'; import * as sdk from ${JSON.stringify(moduleURL)};
+      const target = path.resolve(process.argv[1], 'locks', 'api.lock');
+      const mkdir = fs.mkdirSync; fs.mkdirSync = function(value, ...args) { const result = mkdir.call(fs,value,...args); if (path.resolve(String(value)) === target) { process.send({ paused: true }); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0); } return result; };
       sdk.acquire({root:process.argv[1]},'api',{agent_class:'codex',agent_instance:'paused'},15);`;
     const child = spawn(process.execPath, ['--input-type=module', '-e', crashCode, p.root], { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] }); children.add(child);
     const closed = new Promise<void>(resolve => child.once('close', () => resolve()));

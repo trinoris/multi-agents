@@ -5,7 +5,7 @@ Proprietary and confidential.
 
 # Implementation Plan — trinoris-multi-agents
 
-**Status:** Current implementation gates and capability threat review complete
+**Status:** Protocol hardening complete; CLI mode completion is the next planned milestone
 **Updated:** 2026-10-26
 **Repository version:** 0.2.0
 **Current baseline:** `2f6dc5a` (`ci: refresh security workflow runtimes`)
@@ -100,8 +100,13 @@ residue; it has no writer, reader, or authority.
 
 ## Follow-up backlog
 
-No release or implementation gate remains open. Automatic heartbeat, daemon, and network
-coordination remain out of scope unless their reopen criteria are met.
+Automatic heartbeat, daemon, and network coordination remain out of scope unless their
+reopen criteria are met. The next implementation milestone is [`CLI-MODE-COMPLETION-PLAN.md`](CLI-MODE-COMPLETION-PLAN.md),
+starting with CLI spec reconciliation and then the guarded handoff lifecycle.
+
+The full local suite was rerun on commit `992c8ed` after the threat-review documentation:
+121 tests passed across core (35), SDK (34), and CLI (52). Turbo rebuilt all three package
+artifacts during the run.
 
 ## Change and verification rules
 

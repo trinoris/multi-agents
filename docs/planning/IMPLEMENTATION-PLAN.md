@@ -5,7 +5,7 @@ Proprietary and confidential.
 
 # Implementation Plan — trinoris-multi-agents
 
-**Status:** Cross-platform gate and verification-spec reconciliation complete
+**Status:** Current implementation gates and capability threat review complete
 **Updated:** 2026-10-26
 **Repository version:** 0.2.0
 **Current baseline:** `2f6dc5a` (`ci: refresh security workflow runtimes`)
@@ -76,12 +76,32 @@ original findings as baseline evidence, records the current protocol 3 controls 
 result, and retains uncovered subcases as open rather than treating green CI as proof of
 unexercised cases.
 
+## Release workflow audit: complete
+
+Audited commit `6e79925` against the package manifests, the passing security workflow, the
+manual publishing guide, release runner, and npm registry on 2026-10-26. All three local
+packages are version `0.2.0`, target public npm, and pass `scripts/release-inputs.mjs`.
+The registry contains core `0.1.0`, SDK `0.1.0`, and CLI `0.1.1`; none has a published
+`0.2.0` version. CI runs manifest validation, high/critical audit, and the full tests but
+does not publish. The manual release runner adds frozen install, build, exact tarball
+inspection, offline consumer smoke, and dependency-ordered publication, and rejects
+registry errors other than a confirmed missing exact version. No workflow or manifest
+mismatch was found; no release was published during this audit.
+
+## Heartbeat and network coordination review: complete
+
+[`heartbeat-daemon-threat-review.md`](../decisions/heartbeat-daemon-threat-review.md)
+records the threat analysis and decision to keep automatic renewal, daemon behavior, and
+network coordination out of protocol 3. The current manual, generation-scoped lease and
+handoff model remains the supported local workflow. Reopening this requires an explicit
+product requirement, authenticated ownership, write fencing, and a new versioned design.
+The review also records the unused empty `heartbeat/` directory as inert compatibility
+residue; it has no writer, reader, or authority.
+
 ## Follow-up backlog
 
-1. Audit the release workflow against the current package manifests, CI matrix, and actual
-   npm publication state before preparing a release. Do not publish as part of validation.
-2. Only consider heartbeat/daemon or network coordination after a separate design and
-   threat review. These capabilities are explicitly unsupported by protocol 3 today.
+No release or implementation gate remains open. Automatic heartbeat, daemon, and network
+coordination remain out of scope unless their reopen criteria are met.
 
 ## Change and verification rules
 

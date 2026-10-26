@@ -8,7 +8,7 @@ Proprietary and confidential.
 **Status:** Cross-platform gate and verification-spec reconciliation complete
 **Updated:** 2026-10-26
 **Repository version:** 0.2.0
-**Current baseline:** `7168715` (`fix(release): normalize Windows tar listing paths`)
+**Current baseline:** `2f6dc5a` (`ci: refresh security workflow runtimes`)
 
 ## Purpose
 
@@ -56,18 +56,17 @@ Details and limitations are recorded in [`specs/07-security-hardening.md`](../..
 
 ## Cross-platform validation: complete
 
-GitHub Actions run [40289843909](https://github.com/trinoris/multi-agents/actions/runs/40289843909)
-passed on commit `7168715606502077f520d1c181a44164056b1f9d`:
+GitHub Actions run [40293815948](https://github.com/trinoris/multi-agents/actions/runs/40293815948)
+passed on commit `2f6dc5ab1c4e9d83717892bd1008cc89b6be6e36`:
 
 - Windows and Ubuntu on Node.js 20 and 24: all four full-suite jobs passed.
 - The Ubuntu/Node.js 20 job also passed the Node.js 18 packed-consumer smoke test.
 - The workflow ran manifest validation, high-severity audit, full package tests, and the
   applicable consumer runtime check.
 
-This closes the cross-platform matrix gate for this commit. The v9fs probe remains separate
-evidence for its specific mount. The workflow emitted maintenance warnings about GitHub
-Action JavaScript runtimes and the `ubuntu-latest` image migration; the jobs themselves
-passed.
+This closes the cross-platform matrix gate for this commit and verifies the refreshed action
+versions and pinned Ubuntu runner. The v9fs probe remains separate evidence for its
+specific mount.
 
 ## Verification-spec reconciliation: complete
 
@@ -79,13 +78,9 @@ unexercised cases.
 
 ## Follow-up backlog
 
-1. Verify the refreshed workflow on its next GitHub Actions run: checkout `v7.0.1`, setup-node
-   `v7.1.0`, pnpm/action-setup `v6.1.0`, and the pinned `ubuntu-24.04` runner. Confirm the
-   four OS/Node jobs and the Node.js 18 consumer smoke remain active, and check that the
-   prior action-runtime and Ubuntu image-migration warnings are gone.
-2. Audit the release workflow against the current package manifests, CI matrix, and actual
+1. Audit the release workflow against the current package manifests, CI matrix, and actual
    npm publication state before preparing a release. Do not publish as part of validation.
-3. Only consider heartbeat/daemon or network coordination after a separate design and
+2. Only consider heartbeat/daemon or network coordination after a separate design and
    threat review. These capabilities are explicitly unsupported by protocol 3 today.
 
 ## Change and verification rules

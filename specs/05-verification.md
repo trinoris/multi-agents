@@ -22,11 +22,12 @@ filesystem. Keep stable MA-T IDs when adding current regressions.
 
 ## Current status: protocol 3 verified in CI
 
-The current workflow passed on commit `7168715606502077f520d1c181a44164056b1f9d`:
-[Package security regressions run 40289843909](https://github.com/trinoris/multi-agents/actions/runs/40289843909).
+The refreshed workflow passed on commit `2f6dc5ab1c4e9d83717892bd1008cc89b6be6e36`:
+[Package security regressions run 40293815948](https://github.com/trinoris/multi-agents/actions/runs/40293815948).
 All four jobs passed: Windows and Ubuntu on Node.js 20 and 24. The Ubuntu/Node.js 20 job
-also passed the clean Node.js 18 consumer smoke test. The full suite contains 121 tests
-across 13 files (core 35, SDK 34, CLI 52).
+also passed the clean Node.js 18 consumer smoke test. The run used checkout `v7.0.1`,
+setup-node `v7.1.0`, pnpm/action-setup `v6.1.0`, and `ubuntu-24.04`. The full suite
+contains 121 tests across 13 files (core 35, SDK 34, CLI 52).
 
 The local v9fs adoption probe separately passed 50 trials with 8 workers and zero bad
 trials. This result applies only to that checkout and mount. The CI matrix is the evidence

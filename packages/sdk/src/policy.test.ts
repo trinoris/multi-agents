@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { acquire, acquireMany, breakLock, claim, diagnose, inspect, isHolder, recoverMarker, release, renew } from './lock.js';
 import { readText } from './filesystem.js';
@@ -80,11 +80,17 @@ describe('SG-06 recovery and truthful incidents', () => {
     const p = fixture(); const first = acquire(p, 'api', a, 15); if (!first.ok) throw new Error('fixture');
     fs.writeFileSync(join(p.root, 'locks/api.lock/holder.json'), JSON.stringify({ ...first.lock, acquired_at: '2020-01-01T00:00:00.000Z', expires_at: '2020-01-01T00:15:00.000Z' }));
     const original = fs.renameSync;
+    const holderPath = resolve(join(p.root, 'locks', 'api.lock', 'holder.json'));
+    let injected = false;
     vi.spyOn(fs, 'renameSync').mockImplementation((source, target) => {
-      if (String(target).endsWith('/api.lock/holder.json')) throw new Error('injected disk failure');
+      if (resolve(String(target)) === holderPath) {
+        injected = true;
+        throw new Error('injected disk failure');
+      }
       return original(source, target);
     });
     expect(() => breakLock(p, 'api', b, 15, 0, 'stopped owner')).toThrow();
+    expect(injected).toBe(true);
     const events = fs.readdirSync(join(p.root, 'incidents'));
     expect(events.some(n => n.endsWith('.attempted.json'))).toBe(true);
     expect(events.some(n => n.endsWith('.failed.json'))).toBe(true);

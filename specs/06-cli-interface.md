@@ -21,9 +21,9 @@ The remaining CLI roadmap is tracked separately in
 
 ## Purpose and boundary
 
-`trinoris-agent` exposes the protocol 3 setup, verification, lease, claim, diagnosis, and
-explicit recovery operations. It delegates filesystem coordination to `@trinoris/agent-sdk`
-and validation to `@trinoris/agent-core`.
+`trinoris-agent` exposes protocol 3 setup, verification, lease and handoff lifecycles,
+read-only status and incident views, diagnosis, and explicit recovery. It delegates
+filesystem coordination to `@trinoris/agent-sdk` and validation to `@trinoris/agent-core`.
 
 It coordinates cooperating agents that share one working tree. Agent class and instance
 strings are local labels, not authenticated identities. Locks do not sandbox an editor,
@@ -41,8 +41,8 @@ affected actors have stopped.
 trinoris-agent <command> [options]
 ```
 
-The current top-level help is available with `trinoris-agent --help` or `trinoris-agent
--h`. Help is not implemented per subcommand. There is no current `--version` option.
+Top-level and per-command help are available with `--help` or `-h`. `--version` reads the
+version from the installed CLI package manifest.
 
 ### Common options
 
@@ -51,7 +51,7 @@ The current top-level help is available with `trinoris-agent --help` or `trinori
 | `--work-dir <path>` | Target checkout; defaults to the current working directory. |
 | `--agent-class <name>` | Coordination label. Stateful commands require it explicitly; other commands currently default it to `claude-opus-5`. |
 | `--instance <id>` | Explicit coordination label. Stateful commands require it explicitly; other commands generate an unused per-invocation value when omitted. |
-| `--json` | Emits successful command results as JSON. Parse and runtime errors remain bounded plain text on stderr. |
+| `--json` | Emits successful results as JSON and failures as `{ "error": { "code": "cli_error", "message": "..." } }` on stderr. The message is terminal-escaped and capped at 512 characters. |
 
 Lease mutation commands (`acquire`, `acquire-many`, `check`, `renew`, `release`, `break`,
 `claim`, and `recover`) and handoff mutation commands (`handoff publish`, `handoff complete`)
@@ -70,7 +70,7 @@ checkout's `.trinoris/config.json` by the SDK.
 | --- | --- | --- |
 | `setup` | `--force`, `--agent-classes <csv>`, `--scopes <csv>`, `--lease-minutes <n>`, `--grace-minutes <n>` | Installs protocol 3 files and instructions in the target checkout. `--force` replaces eligible generated files and refuses retained active locks. Lease and grace values use core bounds. |
 | `verify` | `--trials <n>`, `--concurrency <n>` | Checks installed structure, configuration, protocol digest, ignore rule, and real mkdir behavior. Defaults to 50 trials and 8 workers. It uses bounded temporary worker activity. |
-| `status` | `--scope <scope>` | Inspects one registered lease or all lease directories. It does not list handoffs or all incident records. |
+| `status` | `--scope <scope>` | Inspects lease directories. States include `free`, `held`, `expired` (with `breakable`), `malformed`, and `unknown` for an unregistered scope directory. It does not mutate state. |
 | `acquire` | `--scope <scope>`, optional `--task <text>` | Acquires one lease and returns its generation. |
 | `acquire-many` | `--scopes <csv>` | Acquires an ordered all-or-none set of leases. Newly acquired leases roll back if the batch cannot complete. |
 | `check` | `--scope <scope>`, `--generation <id>` | Confirms the caller still holds the exact live generation immediately before writing. |
@@ -85,6 +85,7 @@ checkout's `.trinoris/config.json` by the SDK.
 | `handoff claim` | Same as `claim` | Compatibility spelling for the guarded claim operation. |
 | `handoff complete` | `--note <filename>`, `--outcome <text>`, `--agent-class`, `--instance` | Completes and archives an active note. Writes an idempotent receipt and archive index entry; does not overwrite another archive entry. |
 | `diagnose` | none | Read-only inspection of abandoned mutation, recovery, break, and claim markers. |
+| `incidents list` | optional `--scope <scope>` | Lists up to 200 newest bounded summaries from retained incident events; scans at most 5000 candidate files and reads at most 16 KiB per event. A scoped query returns only matching registered scopes. Malformed events are identified by filename without rendering their contents. |
 | `recover` | `--marker <path>`, `--operation <id or unknown>`, `--reason <text>`, `--confirm-stopped` | Explicitly recovers an exact diagnosed marker after all affected actors have stopped. |
 
 Lease duration and grace use `.trinoris/config.json`. `setup --lease-minutes 30 --grace-minutes 5`
@@ -101,13 +102,14 @@ duration. Configuration rejects `heartbeat.enabled: true`.
 - A failed lease check or a lease operation that reports `not-holder` returns `4`; stop
   editing immediately.
 
-When `--json` is supplied, successful results are one JSON value on stdout. Current errors
-are human-readable bounded text on stderr, not a JSON error envelope. Scripts must use the
-exit code as the success signal and must not parse human error strings as a stable API.
+When `--json` is supplied, successful results are one JSON value on stdout and failures use
+the stable top-level `error.code` / `error.message` shape on stderr. The current code is
+`cli_error`; message details are diagnostic, bounded, and not a machine-readable contract.
+Scripts must use the exit code as the success signal.
 
-`status` is a lease view. `diagnose` is a marker-recovery view. Recent incidents are
-included in acquisition results and in takeover results, but there is no current standalone
-incident-list command.
+`status` is a lease view. `diagnose` is a marker-recovery view. `incidents list` reads
+retained takeover and recovery events; it deliberately omits raw error strings and limits
+reason text to 256 characters. These local records are not independently authenticated.
 
 ## Security requirements
 
@@ -142,7 +144,8 @@ The command contract is exercised by:
 
 - `packages/cli/src/commands/cli.integration.test.ts` — installed CLI command journeys,
   lease lifecycle, handoff validate/publish/list/show/claim/complete journey, argument
-  rejection, diagnosis, and recovery.
+  rejection, diagnosis, recovery, incident listing, status states, help/version, and JSON
+  error output.
 - `packages/cli/src/commands/setup.security.test.ts` — safe and idempotent setup plus
   package-owned protocol installation.
 - `packages/cli/src/commands/verify.test.ts` — readiness, filesystem probe bounds, and
@@ -153,12 +156,5 @@ The command contract is exercised by:
 - `packages/cli/src/commands/packed.integration.test.ts` — packed artifacts and offline
   consumer journey.
 
-## Planned, not current
-
-The following are roadmap items only; they are not implemented CLI contracts:
-
-- a dedicated incident-list view;
-- machine-readable error envelopes, per-command help, and `--version`.
-
-Implementation order and acceptance criteria are maintained in
+Release readiness and cross-platform package validation remain tracked in
 [`docs/planning/CLI-MODE-COMPLETION-PLAN.md`](../docs/planning/CLI-MODE-COMPLETION-PLAN.md).

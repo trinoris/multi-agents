@@ -97,6 +97,50 @@ export function recentIncidents(p: LockPaths, scope: string): string[] {
     return (r.scope === scope || r.action === 'marker-recovery') && Date.parse(r.at) >= now(p).getTime() - cfg.incidents.check_window_hours * 3600_000;
   }).map(n => join(dir, n));
 }
+
+const INCIDENT_LIMIT = 200;
+const INCIDENT_FILE_LIMIT = 5000;
+function safeIncidentText(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  return value.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 256);
+}
+/** Return a bounded, read-only summary of retained operation events. */
+export function listIncidents(p: LockPaths, scope?: string): IncidentListEntry[] {
+  if (scope !== undefined) policy(p, scope);
+  else if (!safePath(p.root)?.isDirectory()) throw new Error('Missing safe .trinoris root');
+  const dir = join(p.root, 'incidents'); const stat = safePath(p.root, dir);
+  if (!stat) return [];
+  if (!stat.isDirectory()) throw new Error('Incident location must be a directory');
+  const names = fs.readdirSync(dir).filter(name => /^[a-f0-9-]{36}\.(attempted|completed|failed)\.json$/.test(name));
+  if (names.length > INCIDENT_FILE_LIMIT) throw new Error('Incident directory exceeds the 5000-record scan limit');
+  const entries: IncidentListEntry[] = [];
+  for (const filename of names) {
+    const match = /^([a-f0-9-]{36})\.(attempted|completed|failed)\.json$/.exec(filename)!;
+    const text = readText(p.root, join(dir, filename), 16384);
+    if (text === null) continue;
+    let raw: Record<string, unknown> | null = null;
+    try { const value: unknown = JSON.parse(text); if (value && typeof value === 'object' && !Array.isArray(value)) raw = value as Record<string, unknown>; } catch { /* report malformed file by name only */ }
+    const stage = match[2] as IncidentListEntry['stage'];
+    const timestamp = raw && typeof raw.at === 'string' && Number.isFinite(Date.parse(raw.at)) ? raw.at : undefined;
+    const valid = !!raw && raw.schema_version === 2 && raw.operation_id === match[1] && raw.stage === stage && !!timestamp;
+    if (!valid) { if (scope === undefined) entries.push({ filename, valid: false }); continue; }
+    const row: IncidentListEntry = { filename, valid: true, timestamp, operation_id: match[1], stage };
+    const action = safeIncidentText(raw!.action); const rowScope = safeIncidentText(raw!.scope);
+    const reason = safeIncidentText(raw!.reason);
+    const actor = raw!.actor && typeof raw!.actor === 'object' && !Array.isArray(raw!.actor) ? raw!.actor as Record<string, unknown> : undefined;
+    if (action) row.action = action;
+    if (rowScope) row.scope = rowScope;
+    if (reason) row.reason = reason;
+    if (typeof raw!.error === 'string') row.has_error = true;
+    if (typeof raw!.state_committed === 'boolean') row.state_committed = raw!.state_committed;
+    if (actor) {
+      const agentClass = safeIncidentText(actor.agent_class); const agentInstance = safeIncidentText(actor.agent_instance);
+      if (agentClass || agentInstance) row.actor = { ...(agentClass ? { agent_class: agentClass } : {}), ...(agentInstance ? { agent_instance: agentInstance } : {}) };
+    }
+    if (scope === undefined || row.scope === scope) entries.push(row);
+  }
+  return entries.sort((a, b) => (Date.parse(b.timestamp ?? '') || 0) - (Date.parse(a.timestamp ?? '') || 0) || a.filename.localeCompare(b.filename)).slice(0, INCIDENT_LIMIT);
+}
 export function acquire(p: LockPaths, scope: string, owner: AgentIdentity, leaseMinutes: number, task?: string) {
   policy(p, scope); identity(owner); duration(leaseMinutes); if (task !== undefined) boundedText(task, 'task');
   return mutate(p, owner, 'acquire', () => {
@@ -215,6 +259,19 @@ export interface HandoffListEntry {
   title?: string;
   status?: string;
   scopes?: string[];
+}
+export interface IncidentListEntry {
+  filename: string;
+  valid: boolean;
+  timestamp?: string;
+  operation_id?: string;
+  stage?: 'attempted' | 'completed' | 'failed';
+  action?: string;
+  scope?: string;
+  actor?: { agent_class?: string; agent_instance?: string };
+  reason?: string;
+  has_error?: boolean;
+  state_committed?: boolean;
 }
 
 function handoffFilename(filename: string) {

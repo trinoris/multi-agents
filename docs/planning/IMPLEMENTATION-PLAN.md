@@ -106,10 +106,11 @@ reopen criteria are met. The CLI completion roadmap is
 [`specs/06-cli-interface.md`](../../specs/06-cli-interface.md) to the shipped command
 surface and marked the older interactive/daemon proposal as historical. Phase 1, stable
 mutation identity and setup-duration options, and Phase 2, the guarded handoff lifecycle,
-are complete locally. Phase 3, read-only incident visibility and command usability, is next.
+are complete locally. Phase 3, read-only incident visibility and command usability, is
+complete locally. Phase 4, release readiness, is next.
 
-The Phase 2 full local suite passed uncached: 135 tests across 14 files — core (36), SDK
-(42), and CLI (57). Turbo rebuilt all three packages. CLI integration tests used real child
+The Phase 3 full local suite passed uncached: 142 tests across 15 files — core (36), SDK
+(45), and CLI (61). Turbo rebuilt all three packages. CLI integration tests used real child
 processes and filesystem fixtures. The suite was run locally on 2026-10-26; Windows CI
 remains the cross-platform verification gate for this change.
 

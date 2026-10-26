@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { acquire, acquireMany, release, renew, inspect, isHolder, breakLock, claim, diagnose, recoverMarker, loadConfiguration, safePath, validateHandoffDraft, publishHandoff, listHandoffs, readHandoff, completeHandoff } from '@trinoris/agent-sdk';
+import { acquire, acquireMany, release, renew, inspect, isHolder, breakLock, claim, diagnose, recoverMarker, loadConfiguration, safePath, validateHandoffDraft, publishHandoff, listHandoffs, readHandoff, completeHandoff, listIncidents } from '@trinoris/agent-sdk';
 import { generateInstanceId, terminalText, identifier } from '@trinoris/agent-core';
 import { setup } from './commands/setup.js';
 import { verify } from './commands/verify.js';
@@ -17,6 +17,7 @@ const allowed: Record<string, string[]> = {
   claim: ['note', 'from', 'to'], diagnose: [], recover: ['marker', 'operation', 'reason', 'confirm-stopped'],
   'handoff-validate': ['note'], 'handoff-publish': ['note'], 'handoff-list': [],
   'handoff-show': ['note', 'location'], 'handoff-complete': ['note', 'outcome'],
+  'incidents-list': ['scope'],
 };
 const booleans = new Set(['json', 'force', 'confirm-stopped']);
 const usage = `trinoris-agent — cooperative local coordination, protocol 3
@@ -38,6 +39,7 @@ handoff list                        List this class's inbox and this instance's 
 handoff show --note F [--location L] Read an authorized inbox or active note
 handoff claim --note F              Claim a note from the class inbox
 handoff complete --note F --outcome T Archive an active note and record its outcome
+incidents list [--scope S]          Read bounded takeover and recovery events
 diagnose                            Read abandoned operation metadata
 recover --marker M --operation ID --reason R --confirm-stopped
                                     Offline operator recovery, never automatic
@@ -47,6 +49,58 @@ Stateful commands require explicit --agent-class and stable --instance values.
 Reuse the same instance and retain the generation for each lease lifecycle.
 Exit: 0 success, 1 invalid/uncertain, 3 contention (do not spin), 4 lease lost.
 Locks are advisory; they do not authenticate agents or fence an uncoordinated writer.`;
+const commandDescriptions: Record<string, string> = {
+  setup: 'Install the package-owned protocol files and bounded lease policy.',
+  verify: 'Check protocol readiness and filesystem coordination behavior.',
+  status: 'Inspect registered lease directories without changing state.',
+  acquire: 'Acquire one registered scope lease.', 'acquire-many': 'Acquire several scopes in registry order or roll back.',
+  check: 'Confirm the exact lease generation remains active.', renew: 'Renew the exact live lease generation.',
+  release: 'Release only the exact lease generation.', break: 'Take over a lease after expiry and grace.',
+  claim: 'Claim a routed handoff into this instance active directory.', diagnose: 'Inspect abandoned mutation markers.',
+  recover: 'Recover one exact marker after confirming all actors stopped.',
+  'handoff-validate': 'Validate a draft without changing it.', 'handoff-publish': 'Publish a validated draft to its declared inbox.',
+  'handoff-list': 'List this class inbox, universal inbox, and this instance active notes.',
+  'handoff-show': 'Read a note from an authorized managed location.', 'handoff-complete': 'Archive this instance active handoff with its outcome.',
+  'incidents-list': 'Read bounded takeover and recovery event summaries.',
+};
+const commandNames: Record<string, string> = {
+  'acquire-many': 'acquire-many', 'handoff-validate': 'handoff validate', 'handoff-publish': 'handoff publish',
+  'handoff-list': 'handoff list', 'handoff-show': 'handoff show', 'handoff-complete': 'handoff complete',
+  'incidents-list': 'incidents list',
+};
+const optionValues: Record<string, string> = {
+  'work-dir': 'DIR', 'agent-class': 'CLASS', instance: 'ID', scope: 'SCOPE', task: 'TEXT', scopes: 'CSV',
+  generation: 'ID', reason: 'TEXT', note: 'FILE', from: 'INBOX', to: 'ACTIVE_DIR', marker: 'PATH',
+  operation: 'ID', trials: 'N', concurrency: 'N', location: 'LOCATION', outcome: 'TEXT',
+  'agent-classes': 'CSV', 'lease-minutes': 'N', 'grace-minutes': 'N',
+};
+function commandHelp(command: string): string {
+  const publicName = commandNames[command] ?? command;
+  const options = [...common, ...allowed[command]].map(key => `  --${key}${booleans.has(key) ? '' : ` <${optionValues[key] ?? 'VALUE'}>`}`).join('\n');
+  const examples: Record<string, string> = {
+    setup: 'trinoris-agent setup --work-dir REPO',
+    verify: 'trinoris-agent verify --work-dir REPO --json',
+    status: 'trinoris-agent status --work-dir REPO --json',
+    acquire: 'trinoris-agent acquire --work-dir REPO --agent-class codex --instance codex-1 --scope api --json',
+    'handoff-validate': 'trinoris-agent handoff validate --work-dir REPO --note review.md',
+    'handoff-publish': 'trinoris-agent handoff publish --work-dir REPO --agent-class codex --instance codex-1 --note review.md',
+    'handoff-list': 'trinoris-agent handoff list --work-dir REPO --agent-class codex --instance codex-1',
+    'handoff-show': 'trinoris-agent handoff show --work-dir REPO --agent-class codex --note review.md',
+    'handoff-complete': 'trinoris-agent handoff complete --work-dir REPO --agent-class codex --instance codex-1 --note review.md --outcome "Review passed"',
+    'incidents-list': 'trinoris-agent incidents list --work-dir REPO --scope api --json',
+  };
+  return `Usage: trinoris-agent ${publicName} [options]\n\n${commandDescriptions[command] ?? 'Run this protocol 3 coordination command.'}\n\nOptions:\n${options}\n  -h, --help  Show this command help\n\nExample:\n  ${examples[command] ?? `trinoris-agent ${publicName} --work-dir REPO --json`}`;
+}
+
+function cliVersion(): string {
+  try {
+    const entry = fs.realpathSync(process.argv[1] ?? '');
+    const packagePath = join(resolve(entry, '..', '..'), 'package.json');
+    const value: unknown = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+    return value && typeof value === 'object' && typeof (value as { version?: unknown }).version === 'string'
+      ? (value as { version: string }).version : 'unknown';
+  } catch { return 'unknown'; }
+}
 
 function parse(command: string, args: string[]) {
   if (!Object.hasOwn(allowed, command)) throw new Error('Unknown command; use --help');
@@ -62,6 +116,7 @@ function parse(command: string, args: string[]) {
 }
 async function main() {
   const [rawCommand, ...rawArgs] = process.argv.slice(2);
+  if (rawCommand === '--version' || rawCommand === '-v') { console.log(cliVersion()); return; }
   let command = rawCommand; let args = rawArgs;
   if (rawCommand === 'handoff') {
     const [subcommand, ...rest] = rawArgs;
@@ -69,7 +124,13 @@ async function main() {
     command = subcommand === 'claim' ? 'claim' : `handoff-${subcommand}`;
     args = rest;
   }
+  if (rawCommand === 'incidents') {
+    const [subcommand, ...rest] = rawArgs;
+    if (subcommand !== 'list') throw new Error('Unknown incidents command; use --help');
+    command = 'incidents-list'; args = rest;
+  }
   if (!command || command === '--help' || command === '-h') { console.log(usage); return; }
+  if (args.includes('--help') || args.includes('-h')) { console.log(commandHelp(command)); return; }
   const opts = parse(command, args);
   if (identityCommands.has(command) && (typeof opts['agent-class'] !== 'string' || typeof opts.instance !== 'string')) {
     throw new Error('Stateful commands require --agent-class and --instance; reuse the same values across related commands');
@@ -125,12 +186,21 @@ async function main() {
     output(result, result.ok ? result.content : `Handoff unavailable (${result.reason})`);
     if (!result.ok) process.exitCode = 1; return;
   }
+  if (command === 'incidents-list') {
+    const entries = listIncidents(paths, typeof opts.scope === 'string' ? opts.scope : undefined);
+    const readable = entries.length ? entries.map(entry => entry.valid
+      ? `${entry.timestamp} · ${entry.stage} · ${entry.scope ?? 'global'} · ${entry.action ?? 'operation'}${entry.reason ? ` · ${entry.reason}` : ''}`
+      : `${entry.filename} · malformed record`).join('\n') : 'No incident records.';
+    output(entries, readable); return;
+  }
   const config = loadConfiguration(paths, true);
   const minutes = config.scopes.lease_duration_minutes; const grace = config.scopes.grace_period_minutes;
   if (command === 'status') {
     const dir = join(paths.root, 'locks'); if (!safePath(paths.root, dir)?.isDirectory()) throw new Error('Missing locks directory');
     const scopes = opts.scope ? [required('scope')] : fs.readdirSync(dir).filter(n => n.endsWith('.lock')).map(n => n.slice(0, -5));
-    output(scopes.map(scope => ({ scope, ...inspect(paths, scope, grace) }))); return;
+    output(scopes.map(scope => config.scopes.registry.includes(scope)
+      ? { scope, ...inspect(paths, scope, grace) }
+      : { scope, state: 'unknown' })); return;
   }
   if (command === 'check') {
     const active = isHolder(paths, required('scope'), instance, required('generation'));
@@ -152,4 +222,9 @@ async function main() {
   output(result);
   if (!result.ok) process.exitCode = result.reason === 'not-holder' ? 4 : ['busy', 'held', 'token-held', 'scope-held', 'claimed-by-other'].includes(result.reason) ? 3 : 1;
 }
-void main().catch(error => { console.error(terminalText(error instanceof Error ? error.message : error)); process.exitCode = 1; });
+void main().catch(error => {
+  const message = terminalText(error instanceof Error ? error.message : error).slice(0, 512);
+  if (process.argv.includes('--json')) console.error(JSON.stringify({ error: { code: 'cli_error', message } }));
+  else console.error(message);
+  process.exitCode = 1;
+});

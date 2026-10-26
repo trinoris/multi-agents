@@ -133,6 +133,28 @@ The recipient must claim before completion. Completion records the outcome in th
 note and adds one archive index entry. `claim --note ...` remains available as a compatibility
 alias for `handoff claim`.
 
+## Inspecting status and incidents
+
+```bash
+trinoris-agent status --work-dir /repo --json
+trinoris-agent incidents list --work-dir /repo --json
+trinoris-agent incidents list --work-dir /repo --scope api
+trinoris-agent handoff list --work-dir /repo --agent-class codex \
+  --instance codex-session-a --json
+```
+
+`status` distinguishes registered lease states (`free`, `held`, `expired`, and
+`malformed`) and reports unregistered lock directories as `unknown`. `incidents list` reads
+up to 200 newest summaries, caps each event read at 16 KiB, and scans at most 5000 event
+files. It does not render raw error text; reason strings are terminal-escaped and capped at
+256 characters. These records are local coordination history, not authenticated audit logs.
+
+Use `trinoris-agent --help`, `trinoris-agent <command> --help`, and
+`trinoris-agent --version` for command guidance and the installed package version. With
+`--json`, errors are emitted on stderr as `{ "error": { "code": "cli_error", "message": "..." } }`;
+messages are bounded diagnostics, so automation should branch on exit codes rather than
+error text.
+
 ### Handoff note format
 
 Use the protocol 3 structure documented in [`specs/03-handoff-format.md`](../../specs/03-handoff-format.md).

@@ -138,20 +138,20 @@ claim → show → complete journey. Existing real-process claim and lease tests
 Cross-platform Windows/Ubuntu validation is a CI gate and is not represented as a new local
 Windows run.
 
-### Phase 3 — read-only operational visibility
+### Phase 3 — read-only operational visibility — implemented locally
 
-- Add `incidents list [--scope <scope>]` with safe bounded rendering and JSON support.
-- Include inbox and active-note counts in a read-only `status` summary or direct users to
-  the handoff commands; do not mix unrelated product-level work into lease status.
-- Make output distinguish live, expired-awaiting-grace, breakable, malformed, and unknown
-  lease states without implying authenticated identity.
-- Add per-command `--help`, top-level `--version`, and actionable examples generated from
-  the same command metadata used for parsing.
-- Define a stable JSON error envelope and test bounded, escaped errors without leaking
-  control characters or secrets.
+- `incidents list [--scope <scope>]` returns bounded read-only summaries with JSON output.
+- `status` distinguishes held, expired/breakable, malformed, and unknown lock directories;
+  handoff details remain available through explicit handoff commands.
+- Per-command help and top-level `--version` are available. Help options are derived from
+  the same allow-list used by argument parsing and include actionable examples.
+- `--json` failures use a stable error envelope with terminal-escaped, bounded diagnostics
+  and do not echo unrelated arguments.
 
-**TDD exit:** CLI subprocess tests assert exact JSON schema, bounded terminal text, no
-mutation on read-only paths, and clear handling of missing or malformed state.
+**TDD status:** SDK and CLI tests cover event filtering, malformed-record handling, record
+and text bounds, status state distinctions, read-only behavior, command help/version, and
+the JSON error envelope. Full uncached local suite passed on 2026-10-26: 142 tests across
+15 files. Windows/Ubuntu CI remains the cross-platform verification gate.
 
 ### Phase 4 — release readiness
 
@@ -179,5 +179,5 @@ required matrix jobs pass; no daemon/heartbeat/network behavior is implied.
 
 ## Current next action
 
-Proceed to Phase 3: add read-only incident visibility and improve status/command help and
-JSON error behavior. Keep the work within protocol 3's one-shot, local coordination boundary.
+Commit Phase 3 locally, then proceed to Phase 4 release readiness. Do not publish without
+a separate explicit release instruction.

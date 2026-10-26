@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -140,6 +140,60 @@ describe('SG-01..09 shipped CLI journeys', () => {
     expect(readFileSync(join(root, '.trinoris/archive/review.md'), 'utf8')).toContain('Completion outcome: Review passed.');
     expect(run(root, 'handoff complete', [...claude, '--note', 'review.md', '--outcome', 'Review passed.']).data()).toMatchObject({ ok: true, alreadyCompleted: true });
   }, 30000);
+  it('lists only bounded incident summaries and supports registered-scope filtering', () => {
+    const root = fixture(); expect(run(root, 'setup').code).toBe(0);
+    const dir = join(root, '.trinoris/incidents');
+    const id = '11111111-1111-4111-8111-111111111111';
+    writeFileSync(join(dir, `${id}.failed.json`), JSON.stringify({
+      schema_version: 2, operation_id: id, stage: 'failed', at: '2026-10-26T13:00:00.000Z',
+      action: 'break', scope: 'api', reason: 'r'.repeat(5000), error: 'secret-detail', state_committed: false,
+    }));
+    const filesBefore = readdirSync(dir).sort();
+    const listed = run(root, 'incidents list');
+    expect(listed.code, listed.stderr).toBe(0);
+    expect(listed.data()).toMatchObject([{ operation_id: id, stage: 'failed', scope: 'api', valid: true }]);
+    expect(listed.stdout).not.toContain('secret-detail');
+    expect(listed.data()[0].has_error).toBe(true);
+    expect(listed.data()[0].reason).toHaveLength(256);
+    expect(run(root, 'incidents list', ['--scope', 'tests']).data()).toEqual([]);
+    expect(run(root, 'incidents list', ['--scope', 'unregistered']).code).toBe(1);
+    expect(readdirSync(dir).sort()).toEqual(filesBefore);
+  });
+  it('distinguishes expired, malformed, and unknown lock directories in status', () => {
+    const root = fixture(); expect(run(root, 'setup').code).toBe(0);
+    const locks = join(root, '.trinoris/locks');
+    mkdirSync(join(locks, 'api.lock'));
+    writeFileSync(join(locks, 'api.lock/holder.json'), JSON.stringify({
+      schema_version: 2, generation: 'lease-old', agent_class: 'codex', agent_instance: 'codex-old', scope: 'api',
+      acquired_at: '2020-01-01T00:00:00.000Z', expires_at: '2020-01-01T00:15:00.000Z',
+    }));
+    mkdirSync(join(locks, 'tests.lock'));
+    writeFileSync(join(locks, 'tests.lock/holder.json'), '{malformed');
+    mkdirSync(join(locks, 'retired-scope.lock'));
+    const status = run(root, 'status').data();
+    expect(status).toEqual(expect.arrayContaining([
+      expect.objectContaining({ scope: 'api', state: 'expired', breakable: true }),
+      expect.objectContaining({ scope: 'tests', state: 'malformed' }),
+      expect.objectContaining({ scope: 'retired-scope', state: 'unknown' }),
+    ]));
+  });
+  it('prints command help and package version from the CLI entry point', () => {
+    const root = fixture();
+    const version = run(root, '--version');
+    expect(version.code).toBe(0); expect(version.stdout.trim()).toBe('0.2.0');
+    const help = run(root, 'handoff validate', ['--help']);
+    expect(help.code).toBe(0); expect(help.stdout).toContain('Usage: trinoris-agent handoff validate');
+    expect(help.stdout).toContain('--note'); expect(help.stdout).not.toContain('--scope');
+  });
+  it('returns a bounded JSON error envelope without echoing unrelated arguments', () => {
+    const root = fixture();
+    const result = run(root, 'acquire', ['--scope', 'api', '--task', 'sensitive-token-value', '--unknown']);
+    expect(result.code).toBe(1);
+    const envelope = JSON.parse(result.stderr);
+    expect(envelope).toMatchObject({ error: { code: 'cli_error' } });
+    expect(envelope.error.message.length).toBeLessThanOrEqual(512);
+    expect(result.stderr).not.toContain('sensitive-token-value');
+  });
   it('diagnoses a marker without deleting it and requires explicit stopped-actor recovery', () => {
     const root = fixture(); run(root, 'setup');
     const marker = join(root, '.trinoris/.mutation'); mkdirSync(marker);

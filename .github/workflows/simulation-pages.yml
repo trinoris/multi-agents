@@ -23,7 +23,7 @@ jobs:
       contents: read
       pages: read
     outputs:
-      site_ready: ${{ steps.site.outcome == 'success' && steps.upload.outcome == 'success' }}
+      site_ready: ${{ steps.site.outcome == 'success' && steps.pages.outcome == 'success' && steps.upload.outcome == 'success' }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -62,11 +62,12 @@ jobs:
         if: always() && (steps.simulate.outcome == 'success' || steps.simulate.outcome == 'failure')
         run: node simulation/build-pages.mjs
       - name: Configure GitHub Pages
+        id: pages
         if: always() && steps.site.outcome == 'success'
         uses: actions/configure-pages@v6
       - name: Upload the Pages site
         id: upload
-        if: always() && steps.site.outcome == 'success'
+        if: always() && steps.site.outcome == 'success' && steps.pages.outcome == 'success'
         uses: actions/upload-pages-artifact@v5
         with:
           path: simulation/site

@@ -1,5 +1,11 @@
 # Phase 0 Complete: CLI v0.1.0
 
+> **Historical record:** This describes the original Python prototype and protocol 1/2
+> layout. It is not the current package architecture or setup guide. The maintained
+> TypeScript packages and protocol 3 plan are documented in
+> [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md); use `packages/cli/README.md` and
+> `.trinoris/PROTOCOL.md` for current operation.
+
 **Date:** 2026-10-25  
 **Status:** ✅ COMPLETE  
 **Duration:** ~1 hour

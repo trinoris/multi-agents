@@ -1,5 +1,10 @@
 # Phase 1 Started: First Handoff Validation
 
+> **Historical record:** These early manual trials used the former `coordination/` layout
+> and shell lifecycle. They are not protocol 3 validation evidence or current instructions.
+> See [IMPLEMENTATION-PLAN.md](IMPLEMENTATION-PLAN.md) for the current status and
+> `.trinoris/PROTOCOL.md` plus `packages/cli/README.md` for current operation.
+
 **Date:** 2026-10-25T11:36:22Z  
 **Status:** ✅ First handoff completed successfully  
 **Agent:** kiro-phase1-374787

@@ -20,19 +20,35 @@ export function validatePackedFiles(files, expected) {
   return pkg;
 }
 
+function outputLines(output) {
+  const normalized = output.replace(/\r\n/g, '\n');
+  return (normalized.endsWith('\n') ? normalized.slice(0, -1) : normalized).split('\n');
+}
+
+export function parseTarListing(output) {
+  return outputLines(output).map(rawName => {
+    // Tar member paths are POSIX by convention. Treat backslashes as separators too,
+    // since Windows tools may render or store them that way and extraction can interpret
+    // them as separators on Windows.
+    const name = rawName.replace(/\\/g, '/');
+    const segments = name.split('/');
+    if (!/^package\/[A-Za-z0-9./_-]+$/.test(name) || segments.some(part => !part || part === '.' || part === '..')) {
+      throw new Error(`Unsafe archive path: ${JSON.stringify(rawName)}`);
+    }
+    return { name, rawName };
+  });
+}
+
 export function inspectTarball(path, expected) {
   const stat = fs.lstatSync(path);
   if (!stat.isFile() || stat.nlink !== 1 || stat.size > 20_000_000) throw new Error('Unsafe artifact');
   const tar = args => execFileSync('tar', args, { encoding: 'utf8', maxBuffer: 2_000_000 });
-  const listing = tar(['-tzf', path]).trim().split('\n');
-  const verbose = tar(['-tvzf', path]).trim().split('\n');
-  if (listing.length > 40 || verbose.some(line => !line.startsWith('-'))) throw new Error('Unexpected archive type or size');
-  const files = listing.map(name => {
-    if (!/^package\/[A-Za-z0-9./_-]+$/.test(name) || name.split('/').includes('..')) throw new Error('Unsafe archive path');
-    return { name, type: 'file', content: tar(['-xOf', path, name]) };
-  });
+  const members = parseTarListing(tar(['-tzf', path]));
+  const verbose = outputLines(tar(['-tvzf', path]));
+  if (members.length > 40 || verbose.some(line => !line.startsWith('-'))) throw new Error('Unexpected archive type or size');
+  const files = members.map(({ name, rawName }) => ({ name, type: 'file', content: tar(['-xOf', path, rawName]) }));
   const manifest = validatePackedFiles(files, expected);
-  return { path, name: manifest.name, version: manifest.version, sha256: createHash('sha256').update(fs.readFileSync(path)).digest('hex'), files: listing };
+  return { path, name: manifest.name, version: manifest.version, sha256: createHash('sha256').update(fs.readFileSync(path)).digest('hex'), files: members.map(member => member.name) };
 }
 
 export function smokeTarballs(artifacts, arena, env, run, consumerNode = process.execPath) {

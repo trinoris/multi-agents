@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { validatePackedFiles } from '../../../../scripts/artifacts.mjs';
+import { parseTarListing, validatePackedFiles } from '../../../../scripts/artifacts.mjs';
 import { createSbom } from '../../../../scripts/release-inputs.mjs';
 
 const expected = { name: '@trinoris/agent-core', version: '0.2.0', dependencies: {} };
@@ -13,6 +13,16 @@ const clean = () => [
   ...['index.js', 'index.cjs', 'index.d.ts', 'index.d.cts'].map(n => ({ name: `package/dist/${n}`, type: 'file', content: 'export {};' })),
 ];
 describe('SG-08 release credential and artifact boundary', () => {
+  it('normalizes Windows tar output without accepting traversal paths', () => {
+    expect(parseTarListing('package/package.json\r\npackage\\dist\\index.js\r\n')).toEqual([
+      { name: 'package/package.json', rawName: 'package/package.json' },
+      { name: 'package/dist/index.js', rawName: 'package\\dist\\index.js' },
+    ]);
+    expect(() => parseTarListing('package/../outside.txt\r\n')).toThrow(/Unsafe archive path/);
+    expect(() => parseTarListing('package\\..\\outside.txt')).toThrow(/Unsafe archive path/);
+    expect(() => parseTarListing('C:\\outside.txt')).toThrow(/Unsafe archive path/);
+  });
+
   it('removes credentials and preload/config injection from gate processes', () => {
     const env = cleanEnvironment({ PATH: '/bin', NODE_AUTH_TOKEN: 'secret', AWS_ACCESS_KEY_ID: 'secret', GITHUB_TOKEN: 'secret', NODE_OPTIONS: '--require attacker', NPM_CONFIG_USERCONFIG: '/secret/.npmrc', HOME: '/home/publisher' }, '/tmp/empty-npmrc');
     expect(env).not.toHaveProperty('NODE_AUTH_TOKEN'); expect(env).not.toHaveProperty('AWS_ACCESS_KEY_ID'); expect(env).not.toHaveProperty('GITHUB_TOKEN'); expect(env).not.toHaveProperty('NODE_OPTIONS');

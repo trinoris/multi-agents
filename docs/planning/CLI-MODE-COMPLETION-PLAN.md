@@ -5,8 +5,8 @@ Proprietary and confidential.
 
 # CLI mode completion plan
 
-**Status:** Proposed implementation roadmap  
-**Reviewed:** 2026-10-26  
+**Status:** Phase 0 complete; implementation roadmap proposed
+**Reviewed:** 2026-10-26
 **Baseline:** local commit `992c8ed`; 121 package tests passed on this checkout
 
 ## Goal
@@ -77,7 +77,7 @@ CLI.
 
 ## Proposed implementation sequence
 
-### Phase 0 — reconcile the contract first
+### Phase 0 — reconcile the contract first — complete
 
 - Rewrite `specs/06-cli-interface.md` to describe the actual protocol 3 CLI and its
   intended completed command surface.
@@ -88,7 +88,8 @@ CLI.
 - Add a spec-to-command matrix linking every public CLI command to implementation and test.
 
 **Exit:** no current spec section promises a command, mode, config source, or behavior the
-CLI does not implement.
+CLI does not implement. The current command contract is now in `specs/06-cli-interface.md`;
+the older interaction/daemon proposal remains in `docs/archive/CLI-SPEC-2026-10-25.md`.
 
 ### Phase 1 — identity and configuration safety
 
@@ -169,6 +170,6 @@ required matrix jobs pass; no daemon/heartbeat/network behavior is implied.
 
 ## Current next action
 
-Start with Phase 0: reconcile `specs/06-cli-interface.md` to the current implementation,
-then implement the handoff lifecycle before adding convenience modes. This prevents stale
-interactive and daemon requirements from driving unsafe or unnecessary implementation.
+Start with Phase 1: add TDD coverage for stable mutation identity and setup duration flags.
+Keep these changes within protocol 3's one-shot, local coordination boundary. Implement the
+handoff lifecycle in Phase 2 before adding convenience commands.

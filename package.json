@@ -11,6 +11,7 @@
     "test": "turbo run test",
     "lint": "turbo run lint",
     "dev": "turbo run dev --parallel",
+    "simulate": "pnpm --filter @trinoris/agent-cli build && node simulation/run.mjs",
     "clean": "turbo run clean && rm -rf node_modules",
     "release": "bash scripts/release.sh",
     "release:dry": "bash scripts/release.sh --dry-run"

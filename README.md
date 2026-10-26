@@ -17,6 +17,8 @@ The project uses the shared filesystem as its coordination layer. It does not re
 hosted service, message broker, or agent-specific integration to manage locks and
 handoffs.
 
+[Open the interactive replay](https://trinoris.github.io/multi-agents/) · [Run it locally](#see-parallel-coding-in-action) · [Read the CLI guide](packages/cli/README.md)
+
 ## What it helps with
 
 - **Reduce overlapping edits.** Agents reserve agreed repository scopes before writing.
@@ -27,6 +29,49 @@ handoffs.
   records an incident instead of silently removing ownership data.
 - **Check the environment first.** The verifier races independent processes to confirm
   whether atomic directory creation works on the actual checkout filesystem.
+
+## See parallel coding in action
+
+**Watch the actors. Follow the code. Inspect the system state.**
+
+**[Explore the simulator on GitHub Pages →](https://trinoris.github.io/multi-agents/)**
+
+The built-in simulator runs scripted agent sessions through the real coordination CLI
+in a disposable workspace. Watch a writer and test engineer hold independent scopes,
+take a regression from RED to GREEN, and hand the change to a reviewer. Competing
+writers and an incorrectly addressed claimant exercise the protocol's refusal paths.
+
+![Simulator replay: actors on the left, a shared code editor and leased file tree in the middle, and recorded system state on the right](docs/images/simulation-replay.png)
+
+| Actors | Coding workspace | System state |
+| --- | --- | --- |
+| See who is editing, reviewing, waiting, or refused. | Explore the file tree, switch editor tabs, and inspect changed lines and test output. | Inspect scope owners, lease generations, handoff progress, and final checks. |
+
+Pause at an editing step, select an actor to inspect their file, or scrub backward to
+restore the earlier code and ownership. **Follow active editor** tracks the next actor's
+file automatically. The recorded final audit stays available alongside the replay.
+
+Run it from a checkout with Node.js 20+ and pnpm:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build
+pnpm simulate
+```
+
+Then open [`simulation/viewer/index.html`](simulation/viewer/index.html) locally in your
+browser. It automatically loads the latest saved run. **Demo run** provides a synthetic
+preview; **Latest run** reloads newly generated results. Saved reports let you return to
+an earlier run and replay it again.
+
+The GitHub Pages site automatically publishes a fresh recorded run after default-branch
+pushes and nightly. Maintainers can also run **Simulator replay · GitHub Pages** from the
+Actions tab. Each published replay includes the viewer and its recorded data; the
+disposable working tree stays outside the public site.
+
+See the [simulator guide](simulation/README.md) for the scenario, controls, and verification,
+or the [workspace design](simulation/docs/editor-workspace.md) for how recorded events map
+to files and ownership.
 
 ## How it works
 
@@ -126,6 +171,7 @@ trinoris-agent --help
 
 ## Learn more
 
+- [Simulator and interactive replay](simulation/README.md)
 - [Coordination protocol](specs/01-coordination-protocol.md)
 - [Lock mechanism and recovery](specs/02-lock-mechanism.md)
 - [Handoff format](specs/03-handoff-format.md)

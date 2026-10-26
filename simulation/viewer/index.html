@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Multi-Agent Coordination · Simulation Viewer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Michroma&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./viewer.css">
+</head>
+<body>
+<div class="board">
+  <header class="hud-header">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">MA</div>
+      <div><h1>MULTI-AGENT COORDINATION</h1><p class="brand-sub">Protocol 3 · Lease and handoff simulation</p></div>
+    </div>
+    <div class="run-meta">
+      <div class="meta-item"><span class="meta-label">Run ID</span><span id="runId" class="meta-value">—</span></div>
+      <div class="meta-item"><span class="meta-label">Replay source</span><span id="sourceLabel" class="meta-value">NO RUN LOADED</span></div>
+      <div class="meta-item"><span class="meta-label">Run state</span><span id="runState" class="run-state">WAITING</span></div>
+    </div>
+  </header>
+
+  <section class="phase-strip" aria-label="Simulation phases">
+    <div class="phase" data-phase="compete"><span class="phase-number">1</span><span class="phase-title">Coordinate code changes</span><span class="phase-desc">Independent scope leases · RED → GREEN</span></div>
+    <div class="phase" data-phase="handoff"><span class="phase-number">2</span><span class="phase-title">Recipient-routed handoff</span><span class="phase-desc">Publish · reject outsider · single claim</span></div>
+    <div class="phase" data-phase="review"><span class="phase-number">3</span><span class="phase-title">Review and archive</span><span class="phase-desc">Inspect change · release scope · complete</span></div>
+  </section>
+
+  <nav class="transport" aria-label="Replay controls">
+    <button id="playBtn" class="transport-btn primary" type="button">▶ Play</button>
+    <input id="scrub" type="range" min="0" max="0" value="0" aria-label="Scrub event timeline">
+    <span id="scrubReadout" class="scrub-readout">0 / 0</span>
+    <div class="speed-group" role="group" aria-label="Playback speed">
+      <button class="speed-btn active" data-speed="1" type="button">1×</button>
+      <button class="speed-btn" data-speed="3" type="button">3×</button>
+      <button class="speed-btn" data-speed="8" type="button">8×</button>
+    </div>
+    <div class="load-controls">
+      <label class="load-btn">▤ Load event report<input id="reportInput" type="file" accept=".jsonl,.ndjson,.txt"></label>
+      <label class="load-btn">✓ Load verifier result<input id="resultInput" type="file" accept=".json,.jsonl"></label>
+      <button id="latestBtn" class="transport-btn" type="button">↻ Latest run</button>
+      <button id="demoBtn" class="transport-btn" type="button">↻ Demo run</button>
+    </div>
+  </nav>
+  <p id="loadMessage" class="load-message" role="status" hidden></p>
+
+  <main class="arena">
+    <section class="panel roster-panel" aria-label="Coordination actors">
+      <h2 class="panel-heading">Actors <small id="actorCount">0 actors</small></h2>
+      <div id="actorRoster" class="roster-list"><p class="log-empty">Load a run to identify its actors.</p></div>
+      <p class="roster-note">Select an actor to inspect their file. Amber means an action was safely refused.</p>
+    </section>
+
+    <section class="editor-workspace" aria-label="Shared coding workspace">
+      <header class="workspace-header"><div><span class="eyebrow">SHARED WORKING TREE</span><strong>release-policy-example</strong></div><label class="follow-toggle"><input id="followEditor" type="checkbox" checked> Follow active editor</label></header>
+      <div class="ide-layout">
+        <details class="file-explorer" open><summary class="explorer-title">EXPLORER <span id="fileCount">0 files</span></summary><div id="fileTree" class="file-tree"></div><div class="tree-legend"><span>● Editing</span><span>◇ Scope leased</span><span>✓ Saved</span></div></details>
+        <section class="editor" aria-label="Recorded code editor">
+          <div id="editorTabs" class="editor-tabs" role="tablist" aria-label="Open files"></div>
+          <div class="editor-toolbar"><span id="editorBreadcrumb">Select a file</span><span id="editorOwner" class="editor-owner">No active editor</span></div>
+          <div id="codeViewport" class="code-viewport" role="tabpanel" aria-label="Recorded file contents"><div id="codeLines" class="code-lines"></div></div>
+          <footer class="editor-statusbar"><span id="editorFileState">Waiting for workspace snapshots</span><span id="editorLanguage">—</span></footer>
+        </section>
+      </div>
+      <section class="activity-bay" aria-label="Workspace activity and command output">
+        <div class="activity-toolbar"><div class="activity-tabs" role="tablist" aria-label="Workspace activity"><button id="activityTab" class="active" role="tab" aria-selected="true" aria-controls="logList" type="button">Activity <span id="logCount">0 EVENTS</span></button><button id="outputTab" role="tab" aria-selected="false" aria-controls="commandOutput" type="button">Test output <span id="testOutputStatus">NOT RUN</span></button></div><span id="eventPhase" class="eyebrow">AWAITING RUN</span></div>
+        <div id="logList" class="log-list" role="tabpanel" aria-labelledby="activityTab"><p class="log-empty">Load a saved report or start the demo run.</p></div>
+        <pre id="commandOutput" class="command-output" role="tabpanel" aria-labelledby="outputTab" hidden>No test command has run at this point in the replay.</pre>
+      </section>
+    </section>
+
+    <aside class="panel guard-panel" aria-label="System state and protocol checks">
+      <h2 class="panel-heading">System state <small id="stateEvent">EVENT 0</small></h2>
+      <div class="system-counters"><div><strong id="leaseCount">0</strong><span>active leases</span></div><div><strong id="blockedCount">0</strong><span>safe refusals</span></div></div>
+      <section class="system-section"><h3>Scope ownership <span id="snapshotSource">NOT RECORDED</span></h3><div id="leaseList" class="lease-list"></div></section>
+      <section class="system-section"><h3>Review handoff</h3><div id="handoffState" class="handoff-state">No handoff yet.</div></section>
+      <section class="system-section"><h3>Test run <span id="systemTests">NOT RUN</span></h3><p id="testSummary" class="system-detail">Waiting for the regression.</p></section>
+      <div class="protocol-meta"><span>Protocol <strong id="protocolVersion">—</strong></span><span>Mutation guard <strong id="mutationState">—</strong></span></div>
+      <details class="final-checks"><summary>Recorded final audit <span id="auditState">PENDING</span></summary>
+      <div id="guardList" class="guard-list">
+        <details class="invariant-gauge" data-check="exclusive_scope_lease"><summary class="gauge-label">Exclusive lease <span class="gauge-state">PENDING</span></summary><p class="gauge-sub">Only one writer owns a registered scope.</p></details>
+        <details class="invariant-gauge" data-check="generation_fencing"><summary class="gauge-label">Generation fencing <span class="gauge-state">PENDING</span></summary><p class="gauge-sub">Released generations cannot authorize later edits.</p></details>
+        <details class="invariant-gauge" data-check="recipient_enforcement"><summary class="gauge-label">Recipient routing <span class="gauge-state">PENDING</span></summary><p class="gauge-sub">A non-recipient cannot claim a private handoff.</p></details>
+        <details class="invariant-gauge" data-check="single_handoff_claimant"><summary class="gauge-label">Single claimant <span class="gauge-state">PENDING</span></summary><p class="gauge-sub">Concurrent eligible reviewers cannot both claim one note.</p></details>
+        <details class="invariant-gauge" data-check="reviewer_inspected_change"><summary class="gauge-label">Change inspected <span class="gauge-state">PENDING</span></summary><p class="gauge-sub">The reviewer reads the exact file written under lease.</p></details>
+        <details class="invariant-gauge" data-check="completed_handoff_archived"><summary class="gauge-label">Handoff archived <span class="gauge-state">PENDING</span></summary><p class="gauge-sub">Completion records an outcome in the archive.</p></details>
+        <details class="invariant-gauge" data-check="tests_red_before_fix"><summary class="gauge-label">Regression caught <span class="gauge-state">PENDING</span></summary><p class="gauge-sub">The new regression fails against the baseline source.</p></details>
+        <details class="invariant-gauge" data-check="tests_green_after_fix"><summary class="gauge-label">Tests green <span class="gauge-state">PENDING</span></summary><p class="gauge-sub">The same tests pass after the source change.</p></details>
+      </div>
+      </details>
+      <p class="guard-explainer"><strong>Read the result as policy behavior.</strong> A refused unauthorized action is a successful guard, not a failed run.</p>
+    </aside>
+  </main>
+
+  <section id="resolutionBanner" class="resolution-banner" hidden>
+    <div><div class="resolution-title">FINAL RESULT</div><div id="resolutionVerdict" class="resolution-verdict">—</div></div>
+    <div id="resolutionDetail" class="resolution-detail"></div>
+  </section>
+  <p class="boundary-note"><strong>Scope:</strong> this viewer replays a local CLI simulation. It does not launch LLMs or prove exclusion against uncooperative filesystem writers. Run <code>trinoris-agent verify</code> on the target filesystem for its real mkdir readiness check.</p>
+</div>
+
+<script src="../scenario.js"></script>
+<script src="./replay-state.js"></script>
+<script src="./editor-workspace.js"></script>
+<script src="./viewer.js"></script>
+</body>
+</html>

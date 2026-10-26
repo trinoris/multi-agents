@@ -1,0 +1,93 @@
+name: Simulator replay · GitHub Pages
+
+on:
+  push:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 3 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: simulation-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Only the default branch publishes; branch pushes keep the existing site intact.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: read
+    outputs:
+      site_ready: ${{ steps.site.outcome == 'success' && steps.upload.outcome == 'success' }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: 8.12.0
+          run_install: false
+      - run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
+      - run: node scripts/release-inputs.mjs
+      - run: pnpm run build
+      - name: Verify replay state and publishing boundaries
+        run: node --test simulation/replay-state.test.mjs simulation/pages.test.mjs
+      - name: Record a real simulation
+        id: simulate
+        continue-on-error: true
+        run: node simulation/run.mjs
+      - name: Retain reports from passing and failing runs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: simulation-reports-${{ github.run_id }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            simulation/artifacts/latest.js
+            simulation/artifacts/*/report.jsonl
+            simulation/artifacts/*/verifier-result.json
+            simulation/artifacts/*/scenario.json
+      - name: Assemble the public replay site
+        id: site
+        if: always() && (steps.simulate.outcome == 'success' || steps.simulate.outcome == 'failure')
+        run: node simulation/build-pages.mjs
+      - name: Configure GitHub Pages
+        if: always() && steps.site.outcome == 'success'
+        uses: actions/configure-pages@v6
+      - name: Upload the Pages site
+        id: upload
+        if: always() && steps.site.outcome == 'success'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: simulation/site
+      - name: Report a failed simulation after preserving its replay
+        if: always() && steps.simulate.outcome == 'failure'
+        run: |
+          echo '::error::Simulation failed. Its recorded result is retained and will be published when the replay bundle is valid.'
+          exit 1
+
+  deploy:
+    needs: build
+    if: ${{ !cancelled() && needs.build.outputs.site_ready == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish simulator replay
+        id: deployment
+        uses: actions/deploy-pages@v5

@@ -69,3 +69,7 @@ tests/.test-atomicity/
 
 # Reviewed release tarballs and audit/test evidence (never credentials)
 .release-artifacts/
+
+# Local agent-coordination simulation runs (reports and disposable workspaces)
+simulation/artifacts/
+simulation/site/

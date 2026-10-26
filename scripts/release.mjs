@@ -16,6 +16,24 @@ export function cleanEnvironment(env, npmrc) {
   const clean = Object.fromEntries(['PATH', 'SystemRoot', 'SYSTEMROOT', 'ComSpec', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL', 'TERM'].filter(k => env[k] !== undefined).map(k => [k, env[k]]));
   return { ...clean, HOME: dirname(npmrc), USERPROFILE: dirname(npmrc), XDG_CONFIG_HOME: join(dirname(npmrc), '.config'), CI: 'true', NPM_CONFIG_USERCONFIG: npmrc, npm_config_userconfig: npmrc, npm_config_ignore_scripts: 'true', NPM_CONFIG_REGISTRY: 'https://registry.npmjs.org/', TURBO_TELEMETRY_DISABLED: '1', DO_NOT_TRACK: '1' };
 }
+function createPublishEnvironment(gateEnv, arena, sourceEnv = process.env) {
+  const publishEnv = { ...gateEnv };
+  const token = sourceEnv.NODE_AUTH_TOKEN || sourceEnv.NPM_REGISTRY_TOKEN;
+  if (token) {
+    const auth = join(arena, 'publish.npmrc');
+    fs.writeFileSync(auth, '//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}\n', { mode: 0o600 });
+    publishEnv.NODE_AUTH_TOKEN = token;
+    publishEnv.NPM_CONFIG_USERCONFIG = auth;
+    publishEnv.npm_config_userconfig = auth;
+  } else {
+    // npm login credentials are visible only to the trusted whoami/publish process.
+    publishEnv.HOME = sourceEnv.HOME;
+    publishEnv.USERPROFILE = sourceEnv.USERPROFILE;
+    delete publishEnv.NPM_CONFIG_USERCONFIG;
+    delete publishEnv.npm_config_userconfig;
+  }
+  return publishEnv;
+}
 export function commandInvocation(command, args, env = process.env, platform = process.platform) {
   if (platform !== 'win32' || !['npm', 'pnpm'].includes(command)) return { command, args };
   const suffix = command === 'npm' ? 'npm-cli.js' : 'pnpm.cjs';
@@ -58,6 +76,14 @@ export function runRelease(args, root = dirname(dirname(fileURLToPath(import.met
     if (gate('pnpm', ['--version']).trim() !== expectedPnpm) throw new Error(`Release requires pnpm ${expectedPnpm}`);
     outputDir = join(root, '.release-artifacts', arena.split(/[\\/]/).pop()); fs.mkdirSync(outputDir, { recursive: true });
     fs.writeFileSync(join(outputDir, 'sbom.json'), JSON.stringify(createSbom(root), null, 2) + '\n');
+    const publishEnv = createPublishEnvironment(env, arena);
+    if (!dryRun) {
+      try {
+        run('npm', ['whoami', '--registry', 'https://registry.npmjs.org/'], { cwd: root, env: publishEnv });
+      } catch {
+        throw new Error('npm authentication is missing or expired. Run `npm login --registry=https://registry.npmjs.org/` (or configure NODE_AUTH_TOKEN) before a real release.');
+      }
+    }
     console.log('Installing from the frozen lockfile without lifecycle scripts or pnpmfile hooks...');
     gate('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts', '--ignore-pnpmfile']);
     console.log('Auditing dependencies; high and critical block release...');
@@ -98,17 +124,6 @@ export function runRelease(args, root = dirname(dirname(fileURLToPath(import.met
       const bytes = fs.readFileSync(artifact.path);
       if (createHash('sha256').update(bytes).digest('hex') !== artifact.sha256) throw new Error('Artifact changed after validation');
       if (dryRun) continue;
-      const publishEnv = { ...env };
-      if (process.env.NODE_AUTH_TOKEN || process.env.NPM_REGISTRY_TOKEN) {
-        const auth = join(arena, 'publish.npmrc');
-        fs.writeFileSync(auth, '//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}\n', { mode: 0o600 });
-        publishEnv.NODE_AUTH_TOKEN = process.env.NODE_AUTH_TOKEN || process.env.NPM_REGISTRY_TOKEN;
-        publishEnv.NPM_CONFIG_USERCONFIG = auth; publishEnv.npm_config_userconfig = auth;
-      } else {
-        // npm login credentials are visible only to this trusted final npm process.
-        publishEnv.HOME = process.env.HOME; publishEnv.USERPROFILE = process.env.USERPROFILE;
-        delete publishEnv.NPM_CONFIG_USERCONFIG; delete publishEnv.npm_config_userconfig;
-      }
       run('pnpm', ['publish', artifact.path, '--registry', 'https://registry.npmjs.org/', '--access', 'public', '--ignore-scripts'], { cwd: arena, env: publishEnv, stdio: 'inherit' });
       report.published.push(`${artifact.name}@${artifact.version}`);
       fs.writeFileSync(join(outputDir, 'release.json'), JSON.stringify(report, null, 2) + '\n');

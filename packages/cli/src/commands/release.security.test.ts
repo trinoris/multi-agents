@@ -68,6 +68,34 @@ describe('SG-08 release credential and artifact boundary', () => {
     expect(() => runRelease([], fileURLToPath(new URL('../../../../', import.meta.url)), run)).toThrow(/clean reviewed/);
     expect(calls).toEqual(['git rev-parse', 'git status']);
   });
+  it('checks npm authentication before install, tests, build, or pack on real releases', () => {
+    const root = fileURLToPath(new URL('../../../../', import.meta.url));
+    const outputRoot = join(root, '.release-artifacts'); mkdirSync(outputRoot, { recursive: true });
+    const before = new Set(readdirSync(outputRoot));
+    const pnpmVersion = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).packageManager.split('@')[1];
+    const calls: string[] = [];
+    const run = (command: string, args: string[]) => {
+      calls.push(`${command} ${args.join(' ')}`);
+      if (command === 'git' && args[0] === 'rev-parse') return 'fixture-commit';
+      if (command === 'git' && args[0] === 'status') return '';
+      if (command === 'git' && args[0] === 'diff') return '';
+      if (command === 'pnpm' && args[0] === '--version') return pnpmVersion;
+      if (command === 'npm' && args[0] === 'whoami') throw new Error('simulated unauthenticated npm');
+      throw new Error(`Unexpected release command: ${command} ${args.join(' ')}`);
+    };
+    try {
+      expect(() => runRelease([], root, run)).toThrow(/npm authentication is missing or expired.*npm login/);
+      expect(calls.at(-1)).toBe('npm whoami --registry https://registry.npmjs.org/');
+      expect(calls.some(call => call.startsWith('pnpm install'))).toBe(false);
+      expect(calls.some(call => call.includes(' test'))).toBe(false);
+      expect(calls.some(call => call.startsWith('pnpm publish'))).toBe(false);
+      const created = readdirSync(outputRoot).filter(name => !before.has(name));
+      expect(created).toHaveLength(1);
+      expect(JSON.parse(readFileSync(join(outputRoot, created[0], 'release.json'), 'utf8'))).toMatchObject({ status: 'failed', published: [] });
+    } finally {
+      for (const name of readdirSync(outputRoot)) if (!before.has(name)) rmSync(join(outputRoot, name), { recursive: true, force: true });
+    }
+  });
   it('retains a machine-readable inventory including patched tools and integrity hashes', () => {
     const bom = createSbom(fileURLToPath(new URL('../../../../', import.meta.url)));
     expect(bom.bomFormat).toBe('CycloneDX');

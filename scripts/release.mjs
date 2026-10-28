@@ -59,7 +59,7 @@ function commandOutput(error) {
 }
 export function runRelease(args, root = dirname(dirname(fileURLToPath(import.meta.url))), run = execute) {
   const { dryRun } = parseReleaseArgs(args);
-  if (Number(process.versions.node.split('.')[0]) < 20) throw new Error('Node.js 20+ is required for release tooling');
+  if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('Node.js 22+ is required for release tooling');
   const errors = validateReleaseInputs(root); if (errors.length) throw new Error(errors.join('\n'));
   const arena = fs.mkdtempSync(join(tmpdir(), 'trinoris-release-'));
   const npmrc = join(arena, 'empty.npmrc'); fs.writeFileSync(npmrc, '', { mode: 0o600 });

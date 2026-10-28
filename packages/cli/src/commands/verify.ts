@@ -52,7 +52,7 @@ function validateOptions(trials: number, concurrency: number): void {
 
 function filesystemOf(path: string): { name: string; warning?: string } {
   try {
-    // Node 18.0-18.14 did not expose statfsSync; keep the CLI usable there.
+    // Keep the filesystem probe usable if the runtime omits the optional statfs API.
     if (typeof fs.statfsSync !== 'function') return { name: 'unknown', warning: 'filesystem type is unavailable in this Node.js version' };
     const type = fs.statfsSync(path).type >>> 0;
     const known: Record<number, string> = { 0xef53: 'ext-family', 0x794c7630: 'overlayfs', 0x6969: 'nfs', 0x01021994: 'tmpfs', 0x01021997: '9p' };

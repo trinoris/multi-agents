@@ -47,7 +47,7 @@ const ROOT_DEV_DEPENDENCIES = {
   vitest: '^4.0.0',
   yaml: '2.9.1',
 };
-const ROOT_ENGINES = { node: '>=20.0.0', pnpm: '>=8.0.0' };
+const ROOT_ENGINES = { node: '>=22.0.0', pnpm: '>=8.0.0' };
 
 const ROOT_PACKAGE_KEYS = [
   'name', 'version', 'private', 'description', 'workspaces', 'scripts', 'devDependencies',
@@ -96,7 +96,7 @@ export function validatePackageManifest(pkg, spec, label = spec.name) {
   expectEqual(pkg.private ?? false, false, `${label} private`, errors);
   expectEqual(pkg.type, 'module', `${label} type`, errors);
   expectEqual(pkg.license, 'Apache-2.0', `${label} license`, errors);
-  expectEqual(pkg.engines, { node: '>=18.0.0' }, `${label} consumer runtime`, errors);
+  expectEqual(pkg.engines, { node: '>=22.0.0' }, `${label} consumer runtime`, errors);
   expectEqual(pkg.files, ['dist'], `${label} publish allow-list`, errors);
   expectEqual(pkg.scripts, SCRIPT_SET, `${label} scripts (unexpected build or lifecycle command)`, errors);
   expectEqual(pkg.dependencies ?? {}, spec.dependencies, `${label} runtime dependencies`, errors);

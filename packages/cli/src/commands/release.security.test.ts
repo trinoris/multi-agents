@@ -9,7 +9,7 @@ import { createSbom } from '../../../../scripts/release-inputs.mjs';
 
 const expected = { name: '@trinoris/agent-core', version: '0.2.0', dependencies: {} };
 const clean = () => [
-  { name: 'package/package.json', type: 'file', content: JSON.stringify({ ...expected, engines: { node: '>=18.0.0' } }) },
+  { name: 'package/package.json', type: 'file', content: JSON.stringify({ ...expected, engines: { node: '>=22.0.0' } }) },
   ...['index.js', 'index.cjs', 'index.d.ts', 'index.d.cts'].map(n => ({ name: `package/dist/${n}`, type: 'file', content: 'export {};' })),
 ];
 describe('SG-08 release credential and artifact boundary', () => {

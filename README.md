@@ -51,7 +51,7 @@ Pause at an editing step, select an actor to inspect their file, or scrub backwa
 restore the earlier code and ownership. **Follow active editor** tracks the next actor's
 file automatically. The recorded final audit stays available alongside the replay.
 
-Run it from a checkout with Node.js 20+ and pnpm:
+Run it from a checkout with Node.js 22+ and pnpm:
 
 ```bash
 pnpm install --frozen-lockfile
@@ -123,8 +123,8 @@ The CLI guide includes concrete workflows, configuration, examples, and limitati
 
 ## Get started from source
 
-The CLI requires Node.js 18 or later at runtime. Building and running this repository’s
-release test toolchain requires Node.js 20 or later.
+The packages and repository tooling require Node.js 22 or later. CI validates maintained
+LTS lines 22 and 24; end-of-life Node.js 18 and 20 are no longer supported.
 
 ```bash
 pnpm install --frozen-lockfile

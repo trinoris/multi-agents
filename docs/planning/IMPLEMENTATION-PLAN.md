@@ -54,18 +54,19 @@ commands. Verify the actual checkout filesystem before relying on its atomic ope
 
 Details and limitations are recorded in [`specs/07-security-hardening.md`](../../specs/07-security-hardening.md).
 
-## Cross-platform validation: complete
+## Cross-platform validation: previous runtime matrix complete; new LTS matrix pending
 
-GitHub Actions run [40293815948](https://github.com/trinoris/multi-agents/actions/runs/40293815948)
-passed on commit `2f6dc5ab1c4e9d83717892bd1008cc89b6be6e36`:
+The previous Node.js 20/24 matrix passed on commit `e06f89d6f8c090f011029fa7b0fcaccd4553eb2d`:
 
-- Windows and Ubuntu on Node.js 20 and 24: all four full-suite jobs passed.
-- The Ubuntu/Node.js 20 job also passed the Node.js 18 packed-consumer smoke test.
+- Windows and Ubuntu on Node.js 20 and 24: all four full-suite jobs passed in
+  [run 40697037334](https://github.com/trinoris/multi-agents/actions/runs/40697037334).
+- The prior Ubuntu/Node.js 20 job also passed the Node.js 18 packed-consumer smoke test.
 - The workflow ran manifest validation, high-severity audit, full package tests, and the
   applicable consumer runtime check.
 
-This closes the cross-platform matrix gate for this commit and verifies the refreshed action
-versions and pinned Ubuntu runner. The v9fs probe remains separate evidence for its
+Node.js 18 and 20 are now end-of-life. The current support-floor change moves the required
+matrix and packed-consumer smokes to Node.js 22 and 24. This updated LTS matrix remains
+pending until CI passes on the new commit. The v9fs probe remains separate evidence for its
 specific mount.
 
 ## Verification-spec reconciliation: complete

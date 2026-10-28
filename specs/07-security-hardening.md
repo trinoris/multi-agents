@@ -9,11 +9,18 @@
 
 **Review type:** Static review, isolated probes, and TDD implementation. The finding descriptions and source line references below preserve the original baseline evidence. Current controls and regression coverage are tracked separately; they must not be read as claims that the old behavior remains in the implementation.
 
-**Release readiness:** The latest committed baseline passed the four-job Windows/Ubuntu,
-Node 20/24 matrix, including Node 18 consumer smoke: [run 40400984078](https://github.com/trinoris/multi-agents/actions/runs/40400984078)
-for commit `271f5110dff3b8c48e3bc509e95ea00e8344a62b`. The local Cursor/Kiro generator and
-spec changes made after that commit still require a fresh CI run. This document does not
-claim the modified working tree is cross-platform verified or publish-ready.
+**Release readiness:** The last committed baseline `e06f89d6f8c090f011029fa7b0fcaccd4553eb2d`
+passed Windows/Ubuntu on Node 20/24 and the then-configured Node 18 consumer smoke in
+[run 40697037334](https://github.com/trinoris/multi-agents/actions/runs/40697037334).
+That is historical evidence. Node 18/20 have since reached EOL; the current support-floor
+change raises package and tooling requirements to Node 22+ and targets maintained LTS lines
+22/24. CI verification of that new matrix is pending.
+
+**Runtime policy:** As of 2026-10-28, support and CI target Node.js 22 (Maintenance LTS)
+and 24 (Active LTS). Node.js 18 and 20 are EOL and are no longer supported. Review the
+[official Node.js release schedule](https://nodejs.org/en/about/previous-releases) and
+[EOL policy](https://nodejs.org/en/about/eol) when updating this floor. The CLI's separate
+runtime security-alert proposal is not implemented by the package version floor alone.
 
 ## Protocol 3 state-root migration
 
@@ -65,11 +72,11 @@ Historical GitHub Actions run [40293815948](https://github.com/trinoris/multi-ag
 passed on commit `2f6dc5ab1c4e9d83717892bd1008cc89b6be6e36`. It predates the current
 protocol 3 implementation and only demonstrates that historical revision's Windows and
 Ubuntu matrix. It must not be used to approve publication of the current changes. The latest
-local run is Linux / Node.js 24.22.1; the clean installed-tarball consumer journey also
-passed on an explicitly verified Node.js 18.20.8 binary. A negative regression prevents
-falling back to the host runtime while asserting a different acceptance target.
-Published runtime metadata retains the tested Node.js 18+ consumer contract; release tooling
-requires Node.js 20+.
+The latest local run before the support-floor change was Linux / Node.js 24.22.1; the
+clean installed-tarball consumer journey also passed on an explicitly verified Node.js
+18.20.8 binary. That historical consumer check does not preserve a support promise for an
+EOL runtime. Published runtime metadata now declares Node.js 22+; the refreshed Node.js
+22/24 consumer checks are pending CI.
 
 Validation commands and retained results:
 
@@ -78,8 +85,8 @@ Validation commands and retained results:
 - TypeScript `--noEmit` checks for core, SDK, and CLI: passed, including test sources and declarations for release helpers.
 - `node scripts/release-inputs.mjs`: all three package manifests, reviewed workspace policy, and parsed lockfile passed.
 - Refreshed npm audit: zero informational, low, moderate, high, or critical advisories.
-- `bash scripts/release.sh --dry-run`: completed with `published: []`, three inspected `0.2.0` tarballs, zero npm audit advisories at every severity, test evidence, and a CycloneDX inventory. Evidence is in `.release-artifacts/trinoris-release-BKsS6D/`. This rehearsal records `dirty_snapshot: true` and source commit `a6fe3ee`; it is local validation only, not a publishable release artifact. The real release requires a clean committed snapshot and reruns all gates.
-- `node scripts/consumer-runtime-smoke.mjs <node-18-binary> 18`: clean offline installed consumer passed on Node.js 18.20.8.
+- `bash scripts/release.sh --dry-run`: passed on clean commit `e06f89d` with `published: []`, three inspected 0.2.0 tarballs, dependency audit, uncached tests, and an offline installed-consumer journey on the host Node.js 24.22.1. Evidence is in `.release-artifacts/trinoris-release-SxYEY4/`. This is not a publishable release artifact; repeat the dry-run on the Node 22+ support-floor commit before release.
+- `node scripts/consumer-runtime-smoke.mjs <node-18-binary> 18`: historical clean offline consumer pass on Node.js 18.20.8; EOL, not a current support claim.
 
 Remaining limits are explicit: this cooperative filesystem protocol cannot authenticate local writers or fence an editor paused after a check. Directory-entry power-loss durability is filesystem-dependent. Heartbeat/daemon support is unavailable rather than silently enabled. A recovery guard abandoned during offline recovery requires operator inspection with all actors stopped; it is never stolen automatically. The high/critical audit threshold remains the required policy; moderate/low failure is not silently imposed as a new publishing policy.
 
@@ -122,7 +129,7 @@ The root README and CLI README already describe the cooperative boundary and the
 - `path.join(root, 'locks', '/tmp/example.lock')` does not reset to `/tmp`; the original review overstated absolute-path behavior. Traversal with `..` does escape: `release(paths, '../../victim', instance)` deleted a prepared `victim.lock` fixture outside the coordination root. Still reject absolute, drive, UNC, separator, and device-path inputs as unsupported identifiers.
 - `rmSync(finalSymlink, { recursive: true, force: true })` removed the symlink itself and preserved its target in the probe. The verified deletion risk is the fixed verifier directory; parent symlinks/junctions and write operations remain separate path-redirection risks.
 - `--audit-level=high` scans for advisories and deliberately tolerates lower severities. It matches the existing high/critical release policy. Moderate gating below is a proposed tightening, not evidence that the existing threshold is malfunctioning.
-- The READMEs distinguish Node.js 18+ consumer runtime from Node.js 20+ build/test tooling. Adding package `engines` must reflect a tested consumer runtime rather than copying the development requirement automatically.
+- The READMEs and package manifests now use a unified Node.js 22+ consumer/build requirement. CI must verify maintained LTS lines 22 and 24; do not claim EOL Node 18/20 support based on historical smoke results.
 - `agent-core` explicitly promises no Node dependencies. Any stronger ID generator must preserve that boundary through a compatible global crypto API or an injected generator.
 
 Runtime probes transpiled the current source into a temporary directory and ran on Linux / Node.js `v24.22.1`. All mutations stayed in disposable fixtures. Forced filesystem interleavings demonstrated successor overwrite/deletion and fresh-acquisition eviction; these prove reachable sequences, not their frequency under real multi-process scheduling. A real verifier run with one trial and two workers passed its atomicity probe while deleting a preexisting sentinel. An initial sandbox run timed out because child execution was restricted; that inconclusive attempt was not treated as a filesystem defect. Windows filesystem behavior was not executed in this review.
@@ -411,7 +418,7 @@ Setup copies `specs/01-coordination-protocol.md` from the target repository if p
 - The package `files: ["dist"]` allowlist and strict manifest validation are positive controls, within the source-trust limits in MA-SEC-16.
 - Keep validating exact package manifests and dependency edges before running package scripts.
 - Add packed-artifact inspection to the release gate to confirm only intended files are present and no source maps, local paths, credentials, or test fixtures are shipped.
-- Add package-level `engines.node` metadata based on a verified consumer runtime. The READMEs currently promise Node.js 18+, while the root requires Node.js 20+ for the development toolchain. Reconcile that distinction deliberately; updating metadata also requires updating the release validator's allowed keys and tests.
+- **Resolved in the Node LTS support-floor change:** package-level `engines.node` metadata, root tooling checks, release validators, and consumer documentation now require Node.js 22+. Verify the new Node 22/24 matrix before considering the change complete.
 
 ## Original validation matrix and current evidence
 

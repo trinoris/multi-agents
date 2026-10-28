@@ -11,7 +11,7 @@ it does not publish packages or require an npm publishing token.
 
 ## Prepare a release
 
-Use Node.js 20+ and the exact pnpm version in `packageManager` (currently 8.12.0).
+Use Node.js 22+ and the exact pnpm version in `packageManager` (currently 8.12.0).
 Commit the reviewed source changes before a real release. The release script rejects
 unknown workspace members, executable package-manager hooks, local registry configuration,
 unreviewed manifest fields/dependencies, and lockfile source changes outside its policy.

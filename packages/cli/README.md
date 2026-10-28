@@ -44,8 +44,9 @@ the CLI cannot fence that edit. Cloned coordination directories do not coordinat
 
 ## Install and adopt
 
-Published consumer packages declare Node.js 18+. The repository build/test toolchain
-requires Node.js 20+. From source, build workspace dependencies before running the CLI:
+Published consumer packages and the repository build/test toolchain require Node.js 22+.
+CI validates maintained LTS lines 22 and 24; end-of-life Node.js 18 and 20 are no longer
+supported. From source, build workspace dependencies before running the CLI:
 
 ```bash
 pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile

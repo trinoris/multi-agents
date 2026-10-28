@@ -14,7 +14,7 @@ export function validatePackedFiles(files, expected) {
   }
   for (const name of ['package.json', 'dist/index.js', 'dist/index.cjs', 'dist/index.d.ts', 'dist/index.d.cts']) if (!names.has(`package/${name}`)) throw new Error(`Missing packed entry: ${name}`);
   const pkg = JSON.parse(files.find(f => f.name === 'package/package.json').content);
-  if (pkg.name !== expected.name || pkg.version !== expected.version || !isDeepStrictEqual(pkg.dependencies ?? {}, expected.dependencies) || pkg.engines?.node !== '>=18.0.0') throw new Error('Packed manifest does not match reviewed versions/dependencies/runtime');
+  if (pkg.name !== expected.name || pkg.version !== expected.version || !isDeepStrictEqual(pkg.dependencies ?? {}, expected.dependencies) || pkg.engines?.node !== '>=22.0.0') throw new Error('Packed manifest does not match reviewed versions/dependencies/runtime');
   if (['prepack', 'prepare', 'prepublish', 'prepublishOnly', 'postpublish', 'install', 'postinstall'].some(k => pkg.scripts?.[k])) throw new Error('Packed lifecycle hook');
   if (expected.name === '@trinoris/agent-cli') {
     if (!names.has('package/dist/bin.js') || !names.has('package/dist/race-worker.mjs')) throw new Error('Missing CLI executable or verifier worker');

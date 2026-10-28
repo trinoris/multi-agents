@@ -20,15 +20,15 @@ MA-T results remain evidence of their recorded runs, not proof of the current SD
 filesystem. Keep stable MA-T IDs when adding current regressions.
 
 
-## Current status: protocol 3 verified in CI (latest committed baseline)
+## Last verified runtime baseline and pending support-floor migration
 
-The latest completed workflow for the reviewed base commit `271f5110dff3b8c48e3bc509e95ea00e8344a62b`
-passed: [Package security regressions run 40400984078](https://github.com/trinoris/multi-agents/actions/runs/40400984078).
-All four jobs passed: Windows and Ubuntu on Node.js 20 and 24. The Ubuntu/Node.js 20 job
-also passed the clean Node.js 18 consumer smoke test. This is evidence for that exact
-committed revision only. The current local Cursor/Kiro setup and specification edits are
-not covered by that run; obtain a fresh CI run after committing them before treating the
-updated tree as cross-platform verified.
+The last verified revision `e06f89d6f8c090f011029fa7b0fcaccd4553eb2d` passed
+[Package security regressions run 40697037334](https://github.com/trinoris/multi-agents/actions/runs/40697037334):
+Windows and Ubuntu on Node.js 20 and 24, plus the then-configured Node.js 18 consumer
+smoke. That matrix is historical evidence only. The current support-floor change retires
+end-of-life Node.js 18/20, declares Node.js 22+, and moves CI plus packed-consumer checks to
+maintained LTS lines 22 and 24. Those changes need a fresh CI run before this spec can claim
+the new runtime matrix is verified.
 
 The local v9fs adoption probe separately passed 50 trials with 8 workers and zero bad
 trials. This result applies only to that checkout and mount. The CI matrix is the evidence
@@ -157,8 +157,8 @@ pressure, and the only way to trust the incident trail is to have seen it produc
 
 ## Current acceptance criteria
 
-- CI release/security matrix passes on Linux and Windows with Node.js 20 and 24; Node.js 18
-  consumer smoke passes on Ubuntu/Node.js 20.
+- CI release/security matrix passes on Linux and Windows with Node.js 22 and 24; packed
+  consumer smoke passes on Ubuntu under both Node.js 22 and 24.
 - A consuming tree's installed `.trinoris/PROTOCOL.md` and digest match the package-owned
   protocol contract; unsupported config or a missing ignore rule blocks readiness.
 - `verify` distinguishes a real atomicity failure from an inconclusive worker/environment

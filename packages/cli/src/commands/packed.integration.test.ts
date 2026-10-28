@@ -8,8 +8,9 @@ import { cleanEnvironment, execute } from '../../../../scripts/release.mjs';
 
 const root = fileURLToPath(new URL('../../../../', import.meta.url));
 describe('SG-08 installed release artifacts', () => {
-  it('refuses to certify a different runtime when Node 18 is asserted', () => {
-    expect(() => execute(process.execPath, ['scripts/consumer-runtime-smoke.mjs', process.execPath, '18'], { cwd: root, env: process.env })).toThrow();
+  it('refuses to certify a different runtime when a mismatched major is asserted', () => {
+    const wrongMajor = process.versions.node.startsWith('22.') ? '24' : '22';
+    expect(() => execute(process.execPath, ['scripts/consumer-runtime-smoke.mjs', process.execPath, wrongMajor], { cwd: root, env: process.env })).toThrow();
   }, 30000);
   it('packs exact workspace dependencies, inspects the archives, and runs an offline consumer journey', () => {
     const arena = fs.mkdtempSync(join(tmpdir(), 'agent-packed-'));

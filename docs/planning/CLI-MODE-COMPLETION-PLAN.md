@@ -5,9 +5,9 @@ Proprietary and confidential.
 
 # CLI mode completion plan
 
-**Status:** Phases 0 and 1 complete; implementation roadmap in progress
-**Reviewed:** 2026-10-26
-**Baseline:** local commit `992c8ed`; 121 package tests passed on this checkout
+**Status:** Phases 0–3 complete; Phase 4 release readiness in progress
+**Reviewed:** 2026-10-28
+**Baseline:** commit `e06f89d`; 191 package tests passed with all package branch-coverage gates green
 
 ## Goal
 
@@ -27,13 +27,13 @@ The shipped command surface in `packages/cli/src/bin.ts` is:
 | --- | --- |
 | Adoption | `setup`, `verify` |
 | Leases | `status`, `acquire`, `acquire-many`, `check`, `renew`, `release`, `break` |
-| Handoffs | `claim` |
-| Recovery | `diagnose`, `recover` |
+| Handoffs | `handoff validate`, `publish`, `list`, `show`, `claim`, `complete`, `wait` (plus top-level `claim` compatibility alias) |
+| Incidents and recovery | `incidents list`, `diagnose`, `recover` |
 
-The CLI already uses the SDK for guarded mutations, requires a generation for lease
+The CLI uses the SDK for guarded mutations, requires a generation for lease
 checks/renewals/releases, emits JSON on successful commands, and has real-filesystem and
-packed-consumer coverage. The local full suite passed with 121 tests across core, SDK, and
-CLI.
+packed-consumer coverage. Commit `e06f89d` passed 191 tests across 19 files and the 80%
+per-package branch-coverage gate.
 
 ## Gaps to close
 
@@ -42,10 +42,10 @@ CLI.
    `archive`, environment/config precedence, and polling behavior that the implementation
    does not provide and protocol 3 must not provide. It was labeled as a current proposal
    even though its header also called much of it historical.
-2. **The handoff lifecycle is incomplete in CLI.** Users create and finish Markdown notes
+2. **Resolved in Phase 2 — handoff lifecycle missing from CLI.** Users create and finish Markdown notes
    outside the CLI. The CLI can claim a note but cannot validate, list, inspect, publish, or
    complete/archive one through the same guarded contract.
-3. **Read-only visibility is partial.** `status` shows lease state and `diagnose` shows
+3. **Resolved in Phase 3 — read-only visibility was partial.** `status` shows lease state and `diagnose` shows
    abandoned operation markers, but there are no dedicated inbox or incident-list views.
 4. **Resolved in Phase 1 — identity defaults were easy to misuse.** A command without
    `--agent-class` silently used `claude-opus-5`; a command without `--instance` created a
@@ -54,7 +54,7 @@ CLI.
 5. **Resolved in Phase 1 — CLI setup could not set all supported lease values.** SDK setup
    accepts lease and grace durations, while the CLI parser exposed only agent classes and
    scope names.
-6. **Error automation is weaker than success automation.** `--json` affects successful
+6. **Resolved in Phase 3 — error automation was weaker than success automation.** `--json` affects successful
    output, but parse/runtime failures are plain text on stderr and do not expose a stable
    machine-readable error shape.
 
@@ -67,7 +67,7 @@ CLI.
 - Safe defaults for read-only commands and explicit stable identity for mutations.
 - Human-readable output plus stable JSON output for scripts and agent callers.
 - SDK-owned filesystem operations; no duplicate mutation logic in the CLI.
-- Cross-platform tests and the existing Node.js 18 packed-consumer contract.
+- Cross-platform tests and packed-consumer tests on maintained Node.js LTS lines 22 and 24.
 
 ### Out of scope
 
@@ -111,7 +111,7 @@ explicit identity works across the lease lifecycle, and invalid setup durations 
 filesystem changes. The fixed registry includes `packages/`, so package code and local tests
 can be coordinated under a defined scope.
 
-### Phase 2 — complete the handoff lifecycle — implemented locally
+### Phase 2 — complete the handoff lifecycle — complete
 
 The CLI and SDK now provide the following lifecycle through SDK-owned, guarded
 operations:
@@ -126,6 +126,9 @@ operations:
   active destination behavior; retain `claim` as a compatibility alias if needed.
 - `handoff complete --note <filename> --outcome <text>` — validate the active note and identity,
   record the outcome, then archive atomically without replacing an existing archive entry.
+- `handoff wait --note <filename>` — optionally follow the sender's exact receipt and digest
+  until an eligible recipient claims and completes the published note; bounded timeout, no
+  held scope lease, and no contention retry.
 
 Completed notes remain unclaimable. Publication and completion use receipts so an exact
 retry can finish an interrupted move; conflicts do not overwrite existing files. Every
@@ -138,7 +141,7 @@ claim → show → complete journey. Existing real-process claim and lease tests
 Cross-platform Windows/Ubuntu validation is a CI gate and is not represented as a new local
 Windows run.
 
-### Phase 3 — read-only operational visibility — implemented locally
+### Phase 3 — read-only operational visibility — complete
 
 - `incidents list [--scope <scope>]` returns bounded read-only summaries with JSON output.
 - `status` distinguishes held, expired/breakable, malformed, and unknown lock directories;
@@ -150,13 +153,15 @@ Windows run.
 
 **TDD status:** SDK and CLI tests cover event filtering, malformed-record handling, record
 and text bounds, status state distinctions, read-only behavior, command help/version, and
-the JSON error envelope. Full uncached local suite passed on 2026-10-26: 142 tests across
-15 files. Windows/Ubuntu CI remains the cross-platform verification gate.
+the JSON error envelope. The current coverage gate passed with 191 tests across 19 files;
+Core 89.81%, SDK 81.83%, and CLI 81.73% branch coverage. The latest pushed commit also passed
+the Windows/Ubuntu Node 20/24 workflow. That runtime matrix is being moved to Node 22/24
+because Node 18 and 20 are end-of-life.
 
 ### Phase 4 — release readiness
 
-- Run the complete suite uncached on Ubuntu and Windows with Node.js 20 and 24.
-- Run the packed consumer on Node.js 18 and 20; verify help, setup, verify, handoff lifecycle,
+- Run the complete suite uncached on Ubuntu and Windows with Node.js 22 and 24.
+- Run the packed consumer on Node.js 22 and 24; verify help, setup, verify, handoff lifecycle,
   and a lease lifecycle using only installed tarballs.
 - Run the release gate: frozen install, configured high/critical audit, complete tests,
   build, packed artifact inspection, and offline consumer journey.
@@ -170,7 +175,7 @@ required matrix jobs pass; no daemon/heartbeat/network behavior is implied.
 - Existing protocol 3 lease and claim commands remain available. If command names are
   grouped under `handoff`, keep existing `claim` as an alias for one release and document
   removal only in a future major version.
-- Preserve exit codes: `0` success, `1` invalid/uncertain, `3` contention, `4` lease lost.
+- Preserve exit codes: `0` success, `1` invalid/uncertain, `3` contention or bounded handoff timeout, `4` lease lost, `130` interrupted wait.
 - Never infer authority from `agent_class`, `agent_instance`, config, environment values,
   or handoff text; these are local coordination labels, not authentication.
 - Preserve generation-required check/renew/release semantics and the no-spin rule.
@@ -179,5 +184,6 @@ required matrix jobs pass; no daemon/heartbeat/network behavior is implied.
 
 ## Current next action
 
-Commit Phase 3 locally, then proceed to Phase 4 release readiness. Do not publish without
+Validate the Node.js 22/24 support-floor change with the full matrix, packed-consumer
+smokes on both supported LTS lines, and a clean release dry-run. Do not publish without
 a separate explicit release instruction.

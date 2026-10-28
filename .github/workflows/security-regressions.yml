@@ -10,7 +10,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-latest]
-        node: [20, 24]
+        node: [22, 24]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -30,10 +30,8 @@ jobs:
       - run: pnpm audit --audit-level=high
       - run: pnpm run test --force
       - run: pnpm run test:coverage
-      - uses: actions/setup-node@v7.1.0
-        if: matrix.os == 'ubuntu-24.04' && matrix.node == 20
-        with:
-          node-version: 18
-      - run: node scripts/consumer-runtime-smoke.mjs "$(command -v node)" 18
+      - run: node scripts/consumer-runtime-smoke.mjs "$(command -v node)" "$NODE_MAJOR"
         shell: bash
-        if: matrix.os == 'ubuntu-24.04' && matrix.node == 20
+        if: matrix.os == 'ubuntu-24.04'
+        env:
+          NODE_MAJOR: ${{ matrix.node }}

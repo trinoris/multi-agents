@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const bin = fileURLToPath(new URL('../../dist/bin.js', import.meta.url));
+const cliPackageVersion = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version as string;
 const roots: string[] = [];
 function fixture() { const root = mkdtempSync(join(tmpdir(), 'agent-cli-journey-')); roots.push(root); return root; }
 function run(root: string, command: string, args: string[] = []) {
@@ -14,9 +15,16 @@ function run(root: string, command: string, args: string[] = []) {
   return { code: result.status, stdout: result.stdout, stderr: result.stderr, data: () => JSON.parse(result.stdout) };
 }
 function runWithNodeVersion(root: string, args: string[], nodeVersion = 'v24.22.0') {
-  const preload = join(root, 'override-node-version.mjs');
-  writeFileSync(preload, `Object.defineProperty(process, 'version', { value: ${JSON.stringify(nodeVersion)} });\n`);
-  const result = spawnSync(process.execPath, ['--import', preload, bin, ...args], { encoding: 'utf8', timeout: 20000 });
+  const bootstrap = join(root, 'override-node-version.mjs');
+  writeFileSync(bootstrap, [
+    "import { pathToFileURL } from 'node:url';",
+    'const [cliPath, ...cliArgs] = process.argv.slice(2);',
+    `Object.defineProperty(process, 'version', { value: ${JSON.stringify(nodeVersion)} });`,
+    'process.argv = [process.execPath, cliPath, ...cliArgs];',
+    'await import(pathToFileURL(cliPath).href);',
+    '',
+  ].join('\n'));
+  const result = spawnSync(process.execPath, [bootstrap, bin, ...args], { encoding: 'utf8', timeout: 20000 });
   if (result.error) throw result.error;
   return { code: result.status, stdout: result.stdout, stderr: result.stderr };
 }
@@ -211,7 +219,7 @@ describe('SG-01..09 shipped CLI journeys', () => {
   it('prints command help and package version from the CLI entry point', () => {
     const root = fixture();
     const version = run(root, '--version');
-    expect(version.code).toBe(0); expect(version.stdout.trim()).toBe('0.2.0');
+    expect(version.code).toBe(0); expect(version.stdout.trim()).toBe(cliPackageVersion);
     const help = run(root, 'handoff validate', ['--help']);
     expect(help.code).toBe(0); expect(help.stdout).toContain('Usage: trinoris-agent handoff validate');
     expect(help.stdout).toContain('--note'); expect(help.stdout).not.toContain('--scope');

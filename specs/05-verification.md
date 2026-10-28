@@ -20,14 +20,15 @@ MA-T results remain evidence of their recorded runs, not proof of the current SD
 filesystem. Keep stable MA-T IDs when adding current regressions.
 
 
-## Current status: protocol 3 verified in CI
+## Current status: protocol 3 verified in CI (latest committed baseline)
 
-The refreshed workflow passed on commit `2f6dc5ab1c4e9d83717892bd1008cc89b6be6e36`:
-[Package security regressions run 40293815948](https://github.com/trinoris/multi-agents/actions/runs/40293815948).
+The latest completed workflow for the reviewed base commit `271f5110dff3b8c48e3bc509e95ea00e8344a62b`
+passed: [Package security regressions run 40400984078](https://github.com/trinoris/multi-agents/actions/runs/40400984078).
 All four jobs passed: Windows and Ubuntu on Node.js 20 and 24. The Ubuntu/Node.js 20 job
-also passed the clean Node.js 18 consumer smoke test. The run used checkout `v7.0.1`,
-setup-node `v7.1.0`, pnpm/action-setup `v6.1.0`, and `ubuntu-24.04`. The full suite
-contains 121 tests across 13 files (core 35, SDK 34, CLI 52).
+also passed the clean Node.js 18 consumer smoke test. This is evidence for that exact
+committed revision only. The current local Cursor/Kiro setup and specification edits are
+not covered by that run; obtain a fresh CI run after committing them before treating the
+updated tree as cross-platform verified.
 
 The local v9fs adoption probe separately passed 50 trials with 8 workers and zero bad
 trials. This result applies only to that checkout and mount. The CI matrix is the evidence
@@ -86,9 +87,14 @@ the old proposed `tests/` directory tree above was never the repository layout.
 
 | Package | Files | Cases | Coverage focus |
 | --- | ---: | ---: | --- |
-| `packages/core` | 3 | 35 | Protocol contract, v2/v3 handoff parsing, input/schema validation, bounded terminal output |
-| `packages/sdk` | 4 | 34 | Path and file safety, generation ownership, leases, claims, guarded recovery, incidents, and real-process concurrency |
-| `packages/cli` | 6 | 52 | Setup/ignore/readiness, verifier probe behavior, CLI journeys, release input policy, tarball inspection, and offline consumer install |
+| `packages/core` | 3 | 37 | Protocol contract, v2/v3 handoff parsing, input/schema validation, bounded terminal output, default agent routing classes |
+| `packages/sdk` | 6 | 50 | Path and file safety, generation ownership, leases, claims, guarded recovery, incidents, and real-process concurrency |
+| `packages/cli` | 6 | 69 | Setup/ignore/readiness, verifier probe behavior, CLI journeys, release input policy, tarball inspection, and offline consumer install |
+
+On 2026-10-28, `pnpm run test --force` passed locally on the current working tree: 156
+tests across 15 files (37 core, 50 SDK, 69 CLI). This includes the Cursor default-routing
+class and generated AGENTS.md instructions. It is a local Linux result; it does not replace
+the fresh Windows/Ubuntu CI run required for the uncommitted edits.
 
 The suite uses both unit tests and real child-process integration tests. Mocked tests do not
 replace the per-environment `verify` probe. Heartbeat/daemon behavior is intentionally

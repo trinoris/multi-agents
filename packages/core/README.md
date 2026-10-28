@@ -74,7 +74,8 @@ const ordered = sortScopesByRegistry(scopes, DEFAULT_SCOPE_REGISTRY);
 ### Constants
 
 - `DEFAULT_SCOPE_REGISTRY` - Standard scope ordering
-- `DEFAULT_AGENT_CLASSES` - Standard agent classes
+- `DEFAULT_AGENT_CLASSES` - Standard routing labels, including `codex-gpt-6`, Claude
+  classes, `kiro`, and `cursor`
 
 ### Utilities
 

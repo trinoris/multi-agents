@@ -1,7 +1,7 @@
 # Package Security Review and Hardening Requirements
 
 **Review date:** 2026-10-25
-**Current evidence updated:** 2026-10-26
+**Current evidence updated:** 2026-10-28
 
 **Scope:** `packages/core`, `packages/sdk`, and `packages/cli`, including package manifests, release tooling, and the package tests/specifications.
 
@@ -9,20 +9,22 @@
 
 **Review type:** Static review, isolated probes, and TDD implementation. The finding descriptions and source line references below preserve the original baseline evidence. Current controls and regression coverage are tracked separately; they must not be read as claims that the old behavior remains in the implementation.
 
-**Release readiness:** Local Linux gates pass, but this working tree is not ready to publish.
-The current edits still need a clean commit and a fresh Windows/Ubuntu CI run against that
-exact commit. The older CI run listed below predates the current implementation and is not
-release evidence for it.
+**Release readiness:** The latest committed baseline passed the four-job Windows/Ubuntu,
+Node 20/24 matrix, including Node 18 consumer smoke: [run 40400984078](https://github.com/trinoris/multi-agents/actions/runs/40400984078)
+for commit `271f5110dff3b8c48e3bc509e95ea00e8344a62b`. The local Cursor/Kiro generator and
+spec changes made after that commit still require a fresh CI run. This document does not
+claim the modified working tree is cross-platform verified or publish-ready.
 
 ## Protocol 3 state-root migration
 
 The current CLI stores all local coordination state and its package-owned contract under
 `.trinoris/`. Setup adds the root-anchored `/.trinoris/` rule to the target repository's
 `.gitignore`; `verify` reports `gitignoreOk` and cannot return ready when that rule is absent.
-Setup adds managed pointers to `AGENTS.md` for Codex and `CLAUDE.md` for Claude Code,
-preserving existing instructions around those blocks. It also installs the Claude project
-skill. Both agent entry points reference `.trinoris/PROTOCOL.md` and
-`.trinoris/handoff/TEMPLATE.md`; both agents use the same CLI validator. The CLI and SDK use
+Setup adds managed pointers to `AGENTS.md` for Codex, Kiro, and Cursor, and `CLAUDE.md` for
+Claude Code, preserving existing instructions around those blocks. Kiro and Cursor both
+load root `AGENTS.md`, so no duplicated tool-specific rules are emitted. Setup also
+installs the Claude project skill. The agent entry points reference `.trinoris/PROTOCOL.md` and
+`.trinoris/handoff/TEMPLATE.md`; supported agents use the same CLI validator. The CLI and SDK use
 this same root, and setup refuses to create a second top-level `coordination/` tree.
 
 This is a protocol 3 layout change because protocol 2 clients continue using
@@ -72,7 +74,7 @@ requires Node.js 20+.
 Validation commands and retained results:
 
 - `pnpm run build`: passed for all three packages on 2026-10-26.
-- `pnpm run test --force`: **154 tests passed** across 15 files (core 36, SDK 50, CLI 68), with no cached tasks. Includes real process claim/acquire/takeover races, killed-process recovery, verifier success/failure/abort cleanup, dangling links, hard links, special files, additive/idempotent Codex and Claude setup instructions, template parsing, CLI journeys, release-failure log retention, and offline installation/inspection of all three tarballs.
+- `pnpm run test --force`: **156 tests passed** across 15 files (core 37, SDK 50, CLI 69), with no cached tasks on 2026-10-28. Includes real process claim/acquire/takeover races, killed-process recovery, verifier success/failure/abort cleanup, dangling links, hard links, special files, additive/idempotent Codex, Kiro, Cursor, and Claude setup instructions, default Cursor handoff routing, template parsing, CLI journeys, release-failure log retention, and offline installation/inspection of all three tarballs. This is the current local Linux result; fresh CI is still required for cross-platform verification of these edits.
 - TypeScript `--noEmit` checks for core, SDK, and CLI: passed, including test sources and declarations for release helpers.
 - `node scripts/release-inputs.mjs`: all three package manifests, reviewed workspace policy, and parsed lockfile passed.
 - Refreshed npm audit: zero informational, low, moderate, high, or critical advisories.

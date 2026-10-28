@@ -139,6 +139,7 @@ export const DEFAULT_AGENT_CLASSES = [
   'claude-opus-5',
   'claude-sonnet-4',
   'kiro',
+  'cursor',
 ] as const;
 
 export type AgentClass = typeof DEFAULT_AGENT_CLASSES[number];

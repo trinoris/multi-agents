@@ -43,6 +43,11 @@ describe('SG-01 safe setup', () => {
     expect(readFileSync(join(workDir, '.gitignore'), 'utf8')).toContain('/.trinoris/');
     expect(readFileSync(join(workDir, 'AGENTS.md'), 'utf8')).toContain('.trinoris/PROTOCOL.md');
     expect(readFileSync(join(workDir, 'AGENTS.md'), 'utf8')).toContain('.trinoris/handoff/for-<class>/');
+    const agentInstructions = readFileSync(join(workDir, 'AGENTS.md'), 'utf8');
+    expect(agentInstructions).toContain('Kiro and Cursor support it as workspace instructions');
+    expect(agentInstructions).toContain('Codex, Kiro, and Cursor read AGENTS.md');
+    expect(existsSync(join(workDir, '.cursor'))).toBe(false);
+    expect(existsSync(join(workDir, '.kiro'))).toBe(false);
     const claudeInstructions = readFileSync(join(workDir, 'CLAUDE.md'), 'utf8');
     expect(claudeInstructions).toContain('.claude/skills/agent-handoff/SKILL.md');
     expect(claudeInstructions).toContain('.trinoris/PROTOCOL.md');
@@ -53,9 +58,11 @@ describe('SG-01 safe setup', () => {
     expect(readFileSync(join(workDir, 'AGENTS.md'), 'utf8')).toContain('.trinoris/handoff/TEMPLATE.md');
     const config = JSON.parse(readFileSync(join(workDir, '.trinoris/config.json'), 'utf8'));
     expect(config.protocol_version).toBe('3'); expect(config.heartbeat.enabled).toBe(false);
+    expect(config.agent_classes).toContain('cursor');
     expect(readFileSync(join(workDir, '.gitignore'), 'utf8')).toContain('/.trinoris/');
     expect(existsSync(join(workDir, '.kiro'))).toBe(false);
     expect(existsSync(join(workDir, '.trinoris/handoff/drafts'))).toBe(true);
+    expect(existsSync(join(workDir, '.trinoris/handoff/for-cursor'))).toBe(true);
     const template = readFileSync(join(workDir, '.trinoris/handoff/TEMPLATE.md'), 'utf8');
     expect(template).toContain('from_class: codex');
     expect(template).toContain('## Blockers and Unknowns');

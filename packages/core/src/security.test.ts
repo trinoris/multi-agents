@@ -38,4 +38,7 @@ describe('SG-04 bounded dates and routing metadata', () => {
       'engine', 'webapp', 'api', 'agents', 'packages', 'infra', 'specs', 'tests', 'root', 'git',
     ]);
   });
+  it('includes Cursor as a default handoff routing class', () => {
+    expect(defaultConfig().agent_classes).toContain('cursor');
+  });
 });

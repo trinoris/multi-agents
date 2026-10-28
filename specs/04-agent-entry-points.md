@@ -19,14 +19,18 @@ unsupported. Git mutations use the conservative mutually exclusive `git` scope. 
 MA-T results remain evidence of their recorded runs, not proof of the current SDK or a new
 filesystem. Keep stable MA-T IDs when adding current regressions.
 
-Setup currently adds managed, idempotent pointers to `AGENTS.md` for Codex and `CLAUDE.md`
-for Claude Code, preserving existing text around each block. It also installs
+Setup currently adds managed, idempotent pointers to `AGENTS.md` for Codex, Kiro, and
+Cursor, and `CLAUDE.md` for Claude Code, preserving existing text around each block. Kiro
+and Cursor both automatically load root `AGENTS.md` ([Kiro steering docs](https://kiro.dev/docs/steering/),
+[Cursor rules docs](https://cursor.com/docs/rules)); setup therefore does not create
+parallel `.kiro/` or `.cursor/` rules that could drift. It also installs
 `.claude/skills/agent-handoff/SKILL.md` with a clear description of when Claude should use
-it. Both entry points point to `.trinoris/PROTOCOL.md` and
+it. The default configuration includes `cursor` as a handoff routing class. Both entry
+points point to `.trinoris/PROTOCOL.md` and
 `.trinoris/handoff/TEMPLATE.md`; verify requires those pointers to remain present.
 
 
-## Historical design status: PROPOSED
+## Historical design status: PROPOSED (superseded by protocol 3)
 
 The proposal below describes the original binding design. The current generated entry
 points and setup behavior are summarized above; old command examples are historical and
@@ -49,8 +53,9 @@ three rules an agent must apply *before* it has read anything else.
 | Tool | File it loads automatically | Role |
 | --- | --- | --- |
 | Claude Code | `.claude/skills/agent-handoff/SKILL.md` | Invoked skill, plus a line in `CLAUDE.md` so it is known about unprompted |
-| Codex CLI | `AGENTS.md` at repo root | Codex's own convention |
-| Kiro (already present in Control Tower) | `.kiro/steering/*.md` | Add only if Kiro joins the protocol |
+| Codex CLI | `AGENTS.md` at repo root | Automatically loaded project instructions |
+| Kiro | `AGENTS.md` at repo root | Automatically loaded as steering; no duplicate `.kiro/steering/` file required |
+| Cursor | `AGENTS.md` at repo root | Automatically loaded project instructions; no duplicate `.cursor/rules/` file required |
 
 ## Claude Code — the skill
 
@@ -84,10 +89,11 @@ A second agent (Codex) may share this working tree. Before editing, read
 `.trinoris/PROTOCOL.md` and hold the lock for the scope you are editing.
 ```
 
-## Codex CLI — `AGENTS.md`
+## Codex, Kiro, and Cursor — `AGENTS.md`
 
-Codex reads `AGENTS.md` from the repo root by convention. It gets the equivalent content,
-in its own file, pointing at the same protocol:
+All three tools read the generated root `AGENTS.md`, which points to the same installed
+protocol and handoff template. Kiro calls this workspace steering; Cursor documents it as
+a simple alternative to project rules.
 
 ```markdown
 # Agent instructions
@@ -110,11 +116,11 @@ to `.trinoris/active/`.
 
 ## The asymmetry worth noting
 
-The two tools differ in how reliably they load their instructions, and the protocol must
+The tools differ in how they load their instructions, and the protocol must
 not assume parity:
 
 - Claude Code loads `CLAUDE.md` automatically and skills on invocation.
-- Codex loads `AGENTS.md` automatically.
+- Codex, Kiro, and Cursor load `AGENTS.md` automatically.
 
 Neither guarantees the agent *acts* on what it read. So the protocol is written to be
 **safe when one side is sloppy**: an agent that acquires locks correctly is protected from
@@ -132,19 +138,18 @@ What a consuming repo gets:
 ```text
 .trinoris/              scaffolding (locks/, handoff/, active/, archive/, incidents/)
 .trinoris/PROTOCOL.md   copied, or symlinked from this repo
-AGENTS.md                  Codex entry point
+AGENTS.md                  Codex, Kiro, and Cursor entry point
 .claude/skills/agent-handoff/SKILL.md
 CLAUDE.md                  one pointer line added
 ```
 
-`(pending)` Copy or symlink? A copy drifts; a symlink breaks on Windows-side checkouts and
-in zips. Leaning toward a copy plus a version line in the header, with a check in spec 05
-that flags divergence. Decide before first adoption.
+The CLI installs a copy of the package-owned contract because symlinks are unreliable on
+Windows and in archives. `verify` checks the installed protocol version and digest so drift
+is detected before the workspace is declared ready.
 
-## Not in scope here
+## Historical open questions — resolved by implementation
 
-- Shipping this as an installable package. Spec 05 covers adoption mechanics; packaging is
-  a later question and depends on the copy-vs-symlink decision above.
-- A third agent. The protocol generalises to N agents unchanged — the scope registry and
-  lease logic do not care — but the `for-<agent>/` directory layout and the two-agent
-  assumptions in the non-goals would need revisiting.
+- **Installable package:** shipped as the `@trinoris/agent-*` package family with the
+  `trinoris-agent` CLI. See specs 05 and 06 for the current adoption and command contract.
+- **Additional agents:** protocol 3 routes by configurable agent class and instance; it is
+  not limited to two agents. Tool-specific entry points remain thin pointers.

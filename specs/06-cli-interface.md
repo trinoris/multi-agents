@@ -64,6 +64,10 @@ The CLI has no user config file, `--config` option, environment-variable precede
 persisted identity profile. Installed coordination settings are read from the selected
 checkout's `.trinoris/config.json` by the SDK.
 
+Default setup registers `cursor` as an agent class, so Cursor sessions can use
+`--agent-class cursor` for acquire, handoff, and recovery routing. The class is a caller
+label; it does not authenticate that the caller is Cursor.
+
 ## Current commands
 
 | Command | Options | Effect |

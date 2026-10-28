@@ -4,7 +4,7 @@ Proprietary and confidential.
 -->
 
 
-# 01 — Two-agent coordination protocol
+# 01 — Shared-worktree agent coordination protocol
 
 ## Protocol 3 implementation notice
 
@@ -20,17 +20,18 @@ MA-T results remain evidence of their recorded runs, not proof of the current SD
 filesystem. Keep stable MA-T IDs when adding current regressions.
 
 
-## Status: PROPOSED
+## Historical design status: PROPOSED (superseded by protocol 3)
 
 Agent-agnostic contract for multiple coding agents sharing one working tree. Agents are
 identified by **model class** (e.g., `codex-gpt-6`, `claude-opus-5`) with unique
 **instance IDs** at runtime (e.g., `codex-gpt-6-a3f2`).
 
-This spec is the single source of truth. It is maintained in `trinoris-multi-agents` and
-copied into each consuming working tree as `.trinoris/PROTOCOL.md`.
+This document preserves the original design and rationale. The package-owned, versioned
+contract in `packages/core/src/protocol.ts` is authoritative for shipped behavior; setup
+copies those exact bytes into each consuming working tree as `.trinoris/PROTOCOL.md`.
 `.claude/skills/agent-handoff/SKILL.md` and
-`AGENTS.md` are thin entry points that point here — if they ever disagree with this file,
-this file wins.
+`AGENTS.md` are thin entry points to that installed contract. If this historical document
+differs from the installed contract, the package-owned protocol wins.
 
 ## The problem being solved
 

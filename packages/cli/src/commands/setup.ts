@@ -52,7 +52,7 @@ export function setup(opts: SetupOptions): SetupResult {
   validateConfig(config);
   const rules = [
     'Read .trinoris/PROTOCOL.md before editing. This is a cooperative local protocol, not a sandbox.',
-    'Codex follows AGENTS.md; Claude Code follows CLAUDE.md and the agent-handoff project skill. Both point to the same protocol and template.',
+    'Codex, Kiro, and Cursor read AGENTS.md; Kiro and Cursor support it as workspace instructions. Claude Code follows CLAUDE.md and the agent-handoff project skill. All use the same protocol and handoff template.',
     'Keep all coordination state in .trinoris/; do not create a parallel coordination/ directory.',
     'Use a stable --instance and keep the generation returned by acquire.',
     'Pass --generation to check/renew/release. An expired lease never authorizes edits.',

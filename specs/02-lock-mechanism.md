@@ -20,7 +20,7 @@ MA-T results remain evidence of their recorded runs, not proof of the current SD
 filesystem. Keep stable MA-T IDs when adding current regressions.
 
 
-## Status: PROPOSED
+## Historical design status: PROPOSED (superseded by protocol 3)
 
 Rationale and failure analysis for the locking in
 [`01-coordination-protocol.md`](01-coordination-protocol.md). Spec 01 states the rules;
@@ -212,11 +212,14 @@ Fix, verified clean at N=8 and N=32 over 60 trials: breaking requires first acqu
 already proven atomic, and a losing breaker stands down without touching the lock. The
 re-verify-after-acquire step then catches anything that still slips through.
 
-## Open questions
+## Resolved design questions
 
-- `(pending)` Should `git` be split into `git-read-write` (index, commit) and `git-history`
-  (branch, rebase, reset)? One coarse scope is safer but serialises all commits. Decide
-  after observing real contention, not before.
-- `(pending)` Is 15/5/5 right? Needs measurement against real tool-call durations.
+- **Keep one conservative `git` scope.** It serializes index and history mutations. This
+  may create contention, but splitting it would make branch/index interactions harder to
+  reason about and is not justified by measured contention data.
+- **Keep 15/5/5 as policy defaults, not an empirically optimal setting.** The CLI supports
+  bounded lease and grace configuration; `setup --lease-minutes` derives the renewal
+  threshold as one third of the lease. Revisit defaults only with representative usage
+  measurements, not anecdotal tool duration.
 - **Resolved** — `mkdir` atomicity under genuine concurrent load on v9fs: **verified**,
   4,200 racing processes (N=2/8/32 × 100 trials), exactly one winner every trial.

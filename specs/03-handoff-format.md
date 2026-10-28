@@ -24,9 +24,9 @@ filesystem. Keep stable MA-T IDs when adding current regressions.
 
 This label belongs to the original design draft. Protocol 3 is implemented and enforced by
 the shipped core, SDK, and CLI. Setup now installs a copy-ready handoff skeleton at
-`.trinoris/handoff/TEMPLATE.md`; Codex discovers it through `AGENTS.md`, and Claude Code
-through `.claude/skills/agent-handoff/SKILL.md`. Both entry points direct agents to the
-same template, protocol, and CLI validation flow. Replace all template fields, validate the
+`.trinoris/handoff/TEMPLATE.md`; Codex, Kiro, and Cursor discover it through `AGENTS.md`,
+and Claude Code through `.claude/skills/agent-handoff/SKILL.md`. All entry points direct
+agents to the same template, protocol, and CLI validation flow. Replace all template fields, validate the
 draft, release held scopes, then publish it. The CLI is the schema gate; prose instructions
 alone do not make a malformed note claimable.
 
@@ -193,10 +193,13 @@ repos meets one habit, not two.
 | A stale note left in `for-<agent-class>/` for days | Either it still matters — claim it — or archive it with an Outcome saying it lapsed |
 | Addressing to the wrong agent class | `to_class: codex-gpt-6` for a task requiring design/architecture (better for `claude-opus-5`) |
 
-## Open questions
+## Resolved design questions
 
-- `(pending)` Should notes carry an explicit `expires` field? A handoff about a branch that
-  has since moved on is misleading, and nothing currently detects that.
+- **Resolved — no automatic expiry in protocol 3.** Long-running work must not silently
+  become unclaimable because a timestamp elapsed. A recipient checks the note's base commit
+  and current repository state before relying on it; stale notes remain visible for an
+  explicit archive or follow-up decision. Handoff expiry is not an authorization or safety
+  boundary.
 - **Resolved** — Archive needs an index: `archive/INDEX.md` with one-line entries per note,
   added when the note is archived. Makes history searchable without `grep -r` over hundreds
   of files.

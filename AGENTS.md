@@ -23,6 +23,8 @@
 # Trinoris agent coordination
 
 - Read .trinoris/PROTOCOL.md before editing. This is a cooperative local protocol, not a sandbox.
+- At each new agent session cold start, run `trinoris-agent doctor --runtime` once when the installed CLI is available.
+- In this source checkout, if the CLI is not on PATH, build it from local dependencies and run `node packages/cli/dist/bin.js doctor --runtime`. The check is offline; if it reports a critical runtime advisory, stop and upgrade Node.js before using the CLI.
 - Codex, Kiro, and Cursor read AGENTS.md; Kiro and Cursor support it as workspace instructions. Claude Code follows CLAUDE.md and the agent-handoff project skill. All use the same protocol and handoff template.
 - Keep all coordination state in .trinoris/; do not create a parallel coordination/ directory.
 - Use a stable --instance and keep the generation returned by acquire.

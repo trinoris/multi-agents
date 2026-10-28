@@ -48,6 +48,14 @@ Published consumer packages and the repository build/test toolchain require Node
 CI validates maintained LTS lines 22 and 24; end-of-life Node.js 18 and 20 are no longer
 supported. From source, build workspace dependencies before running the CLI:
 
+At each new agent session, run `trinoris-agent doctor --runtime` once to see the current
+runtime and bundled advisory status. The CLI also performs a local catalog lookup at each
+startup and blocks ordinary commands with exit `78` if the exact Node.js patch version is
+known to have a critical advisory. The lookup makes no network request. The catalog is
+updated through reviewed CLI releases, so an older installed CLI cannot know about later
+advisories; `doctor` shows the catalog review date and never presents this offline check as
+a live scan.
+
 ```bash
 pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
 pnpm build
@@ -329,6 +337,7 @@ run protocol 2 and 3 clients concurrently.
 | 3 | Contention or bounded handoff-wait timeout | On contention, pick other work; never spin. On timeout, inspect the handoff status before deciding what to do |
 | 130 | Handoff wait interrupted by Ctrl-C | Resume or inspect the handoff later |
 | 4 | Lease lost or cannot be confirmed | Stop editing and safely reacquire |
+| 78 | Exact Node.js runtime matches a known critical advisory | Run `trinoris-agent doctor --runtime`, upgrade to the listed fixed version, and restart the CLI |
 
 `--json` gives structured stdout. Errors use bounded escaped stderr. Keep secrets out of
 all task/reason/note fields. Runtime tests and release gates live alongside package code.

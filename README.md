@@ -125,6 +125,10 @@ The CLI guide includes concrete workflows, configuration, examples, and limitati
 
 The packages and repository tooling require Node.js 22 or later. CI validates maintained
 LTS lines 22 and 24; end-of-life Node.js 18 and 20 are no longer supported.
+The CLI checks the exact running Node.js patch against its bundled critical-advisory
+catalog before normal commands. This is an offline lookup; run
+`trinoris-agent doctor --runtime` at agent-session cold start for the catalog date and any
+remediation details.
 
 ```bash
 pnpm install --frozen-lockfile

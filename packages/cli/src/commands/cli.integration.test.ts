@@ -13,6 +13,13 @@ function run(root: string, command: string, args: string[] = []) {
   if (result.error) throw result.error;
   return { code: result.status, stdout: result.stdout, stderr: result.stderr, data: () => JSON.parse(result.stdout) };
 }
+function runWithNodeVersion(root: string, args: string[], nodeVersion = 'v24.22.0') {
+  const preload = join(root, 'override-node-version.mjs');
+  writeFileSync(preload, `Object.defineProperty(process, 'version', { value: ${JSON.stringify(nodeVersion)} });\n`);
+  const result = spawnSync(process.execPath, ['--import', preload, bin, ...args], { encoding: 'utf8', timeout: 20000 });
+  if (result.error) throw result.error;
+  return { code: result.status, stdout: result.stdout, stderr: result.stderr };
+}
 const who = ['--agent-class', 'codex', '--instance', 'codex-a'];
 const handoffDraft = `---
 from_class: codex
@@ -78,6 +85,30 @@ See the plan.
 `;
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 describe('SG-01..09 shipped CLI journeys', () => {
+  it('blocks normal startup on a known critical Node advisory but leaves doctor/help available', () => {
+    const root = fixture();
+    const blocked = runWithNodeVersion(root, ['status', '--json']);
+    expect(blocked.code).toBe(78);
+    expect(blocked.stderr).toContain('critical_runtime_vulnerability');
+    expect(blocked.stderr).toContain('CVE-2026-111497');
+    expect(blocked.stderr).toContain('24.22.1');
+
+    const doctor = runWithNodeVersion(root, ['doctor', '--runtime', '--json']);
+    expect(doctor.code).toBe(78);
+    expect(JSON.parse(doctor.stdout)).toMatchObject({
+      status: 'blocked',
+      nodeVersion: 'v24.22.0',
+      criticalAdvisories: [expect.objectContaining({ fixedVersion: '24.22.1' })],
+    });
+
+    expect(runWithNodeVersion(root, ['--help']).code).toBe(0);
+    expect(runWithNodeVersion(root, ['--version']).code).toBe(0);
+    expect(runWithNodeVersion(root, ['doctor', '--help']).code).toBe(0);
+    const unknown = runWithNodeVersion(root, ['doctor', '--runtime', '--json'], 'unknown-runtime');
+    expect(unknown.code).toBe(1);
+    expect(JSON.parse(unknown.stdout)).toMatchObject({ status: 'unknown', catalogMode: 'bundled-offline-snapshot' });
+  });
+
   it('sets up, verifies the real filesystem, acquires, checks, renews and releases a generation', () => {
     const root = fixture(); expect(run(root, 'setup').code).toBe(0);
     expect(existsSync(join(root, '.trinoris/config.json'))).toBe(true);

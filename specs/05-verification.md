@@ -20,15 +20,19 @@ MA-T results remain evidence of their recorded runs, not proof of the current SD
 filesystem. Keep stable MA-T IDs when adding current regressions.
 
 
-## Last verified runtime baseline and pending support-floor migration
+## Current runtime verification
 
-The last verified revision `e06f89d6f8c090f011029fa7b0fcaccd4553eb2d` passed
-[Package security regressions run 40697037334](https://github.com/trinoris/multi-agents/actions/runs/40697037334):
-Windows and Ubuntu on Node.js 20 and 24, plus the then-configured Node.js 18 consumer
-smoke. That matrix is historical evidence only. The current support-floor change retires
-end-of-life Node.js 18/20, declares Node.js 22+, and moves CI plus packed-consumer checks to
-maintained LTS lines 22 and 24. Those changes need a fresh CI run before this spec can claim
-the new runtime matrix is verified.
+The last verified revision `e06f89d6f8c090f011029fa7b0fcaccd4553eb2d` passed the previous
+Windows/Ubuntu Node.js 20/24 matrix in [run
+40697037334](https://github.com/trinoris/multi-agents/actions/runs/40697037334). That
+matrix is historical evidence only. The current support floor retires EOL Node.js 18/20,
+declares Node.js 22+, and targets maintained LTS lines 22 and 24. The updated Windows and
+Ubuntu matrix plus packed-consumer checks passed on commit `f06e526` in [run
+40727208527](https://github.com/trinoris/multi-agents/actions/runs/40727208527).
+
+The CLI runtime-advisory startup gate is a later local change and still needs its own CI
+run on the implementation commit. Its tests use a subprocess with a controlled Node version
+to verify exact vulnerable/fixed patch behavior without depending on the CI host's patch.
 
 The local v9fs adoption probe separately passed 50 trials with 8 workers and zero bad
 trials. This result applies only to that checkout and mount. The CI matrix is the evidence
@@ -88,17 +92,17 @@ the old proposed `tests/` directory tree above was never the repository layout.
 | Package | Files | Cases | Coverage focus |
 | --- | ---: | ---: | --- |
 | `packages/core` | 4 | 45 | Protocol contract, v2/v3 handoff parsing, input/schema validation, bounded terminal output, default agent routing classes |
-| `packages/sdk` | 8 | 61 | Path and file safety, generation ownership, leases, claims, guarded recovery, incidents, and real-process concurrency |
-| `packages/cli` | 6 | 79 | Setup/ignore/readiness, verifier probe behavior, CLI journeys, release input policy, tarball inspection, and offline consumer install |
+| `packages/sdk` | 9 | 67 | Path and file safety, generation ownership, leases, claims, guarded recovery, incidents, and real-process concurrency |
+| `packages/cli` | 7 | 86 | Setup/ignore/readiness, runtime advisory gate, verifier probe behavior, CLI journeys, release input policy, tarball inspection, and offline consumer install |
 
-On 2026-10-28, the full coverage gate passed locally on Linux: 185 tests across 18 files
-(45 core, 61 SDK, 79 CLI). It does not replace the fresh Windows/Ubuntu CI run required
+On 2026-10-28, the full coverage gate passed locally on Linux: 198 tests across 20 files
+(45 core, 67 SDK, 86 CLI). It does not replace the fresh Windows/Ubuntu CI run required
 for these uncommitted edits.
 
 `pnpm run test:coverage` is the branch-coverage gate in CI. It runs the Vitest suite for
 each workspace package with V8 coverage and requires at least 80% branch coverage per
-package. On 2026-10-28 it passed with Core at 89.81%, SDK at 80.73%, and CLI command
-modules at 81.73%. The CLI bootstrap wrapper (`packages/cli/src/bin.ts`) is excluded from
+package. On 2026-10-28 it passed with Core at 89.81%, SDK at 81.83%, and CLI command
+modules at 83.39%. The CLI bootstrap wrapper (`packages/cli/src/bin.ts`) is excluded from
 source coverage because the installed CLI journey tests exercise its built entry point.
 
 The suite uses both unit tests and real child-process integration tests. Mocked tests do not

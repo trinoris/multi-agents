@@ -9,18 +9,21 @@
 
 **Review type:** Static review, isolated probes, and TDD implementation. The finding descriptions and source line references below preserve the original baseline evidence. Current controls and regression coverage are tracked separately; they must not be read as claims that the old behavior remains in the implementation.
 
-**Release readiness:** The last committed baseline `e06f89d6f8c090f011029fa7b0fcaccd4553eb2d`
-passed Windows/Ubuntu on Node 20/24 and the then-configured Node 18 consumer smoke in
-[run 40697037334](https://github.com/trinoris/multi-agents/actions/runs/40697037334).
-That is historical evidence. Node 18/20 have since reached EOL; the current support-floor
-change raises package and tooling requirements to Node 22+ and targets maintained LTS lines
-22/24. CI verification of that new matrix is pending.
+**Release readiness:** The previous Node 20/24 CI evidence on commit `e06f89d`
+([run 40697037334](https://github.com/trinoris/multi-agents/actions/runs/40697037334)) is
+historical. The Node 22/24 support-floor change passed the Windows/Ubuntu matrix and
+packed-consumer checks on commit `f06e526`
+([run 40727208527](https://github.com/trinoris/multi-agents/actions/runs/40727208527)).
+Node 18/20 are EOL and are no longer supported. The current uncommitted runtime startup
+gate is covered by local tests and still needs CI validation on its implementation commit.
 
 **Runtime policy:** As of 2026-10-28, support and CI target Node.js 22 (Maintenance LTS)
 and 24 (Active LTS). Node.js 18 and 20 are EOL and are no longer supported. Review the
 [official Node.js release schedule](https://nodejs.org/en/about/previous-releases) and
-[EOL policy](https://nodejs.org/en/about/eol) when updating this floor. The CLI's separate
-runtime security-alert proposal is not implemented by the package version floor alone.
+[EOL policy](https://nodejs.org/en/about/eol) when updating this floor. The CLI checks
+its exact `process.version` at startup against a small bundled critical-advisory catalog.
+This check is local and performs no URL request; `doctor --runtime` reports the catalog
+review date and the limits of its offline data.
 
 ## Protocol 3 state-root migration
 
@@ -64,6 +67,21 @@ paths, and explicit offline marker recovery.
 | MA-SEC-15 | Registry validation, ordered all-or-none batches, reciprocal Git/edit guard; unsupported heartbeat explicitly disabled and rejected | SDK `policy.test.ts`; core configuration tests |
 | MA-SEC-17 | Installer ships complete contract; verifier checks its version/hash separately from filesystem atomicity | Setup/verifier tests; divergent-contract CLI journey |
 
+### Runtime security startup gate (added 2026-10-28)
+
+Before dispatching any ordinary command, the CLI compares the exact `process.version`
+with a reviewed catalog bundled in the package. A known critical match exits `78` before
+reading or mutating coordination state. `doctor --runtime`, help, and version remain
+available. This is an in-process lookup and performs no network request at startup.
+
+The bundled catalog records CVE-2026-111497 and fixed Node.js versions 22.23.4, 24.22.1,
+and 26.12.1. GitHub Advisory Database classifies it Critical (CVSS v4 9.2); the Node.js
+release notice describes it as High. The CLI preserves both sources and uses the critical
+GHSA classification for its blocking decision. The offline catalog cannot know about
+advisories published after its review date; updating the catalog and shipping a CLI release
+is required to discover later advisories. `doctor --runtime` must make this limitation
+visible and must not claim a current online vulnerability scan.
+
 TDD evidence includes the initial **29 failing regressions**, four failing verifier regressions, four failing release-input cases, and the failing CLI/packed-consumer journeys before their fixes. Further failure tests exposed incomplete-marker recovery, interrupted receipt retry, invalid recorded duration, maximum-length takeover summary, and identity-field override defects before correction. Durable tests live beside the package entry points; temporary review probes are not used as the release gate.
 
 The `20261025T1430-embedded-protocol-missing-rules.md` handoff was checked against the evolving contract. No-spin, lease/grace, and guarded takeover were already present; the explicit unsafe-move warning and historical counterexamples were added after two failing regressions. Core `protocol.test.ts` and the empty-consumer setup regression now protect all four rules in the shipped contract. Historical 21/100, 25/60, and 59/60 results are attributed to the recorded v9fs primitive experiments, not presented as current SDK certification.
@@ -75,13 +93,14 @@ Ubuntu matrix. It must not be used to approve publication of the current changes
 The latest local run before the support-floor change was Linux / Node.js 24.22.1; the
 clean installed-tarball consumer journey also passed on an explicitly verified Node.js
 18.20.8 binary. That historical consumer check does not preserve a support promise for an
-EOL runtime. Published runtime metadata now declares Node.js 22+; the refreshed Node.js
-22/24 consumer checks are pending CI.
+EOL runtime. Published runtime metadata now declares Node.js 22+. The Node.js 22/24 matrix
+and packed-consumer checks passed on commit `f06e526` in [run
+40727208527](https://github.com/trinoris/multi-agents/actions/runs/40727208527).
 
 Validation commands and retained results:
 
 - `pnpm run build`: passed for all three packages on 2026-10-26.
-- `pnpm run test:coverage`: passed on 2026-10-28 with 191 tests across 19 files and Core 89.81%, SDK 81.83%, and CLI command modules 81.73% V8 branch coverage. CI enforces an 80% minimum for each package; the CLI bootstrap is excluded because the built entry point is exercised by CLI integration tests.
+- `pnpm run test:coverage`: passed locally on 2026-10-28 with 198 tests across 20 files and Core 89.81%, SDK 81.83%, and CLI command modules 83.39% V8 branch coverage. CI enforces an 80% minimum for each package; the CLI bootstrap is excluded because the built entry point is exercised by CLI integration tests. The new runtime-gate source and generated cold-start instruction are included in these tests; cross-platform CI for this change remains pending.
 - TypeScript `--noEmit` checks for core, SDK, and CLI: passed, including test sources and declarations for release helpers.
 - `node scripts/release-inputs.mjs`: all three package manifests, reviewed workspace policy, and parsed lockfile passed.
 - Refreshed npm audit: zero informational, low, moderate, high, or critical advisories.
@@ -418,7 +437,7 @@ Setup copies `specs/01-coordination-protocol.md` from the target repository if p
 - The package `files: ["dist"]` allowlist and strict manifest validation are positive controls, within the source-trust limits in MA-SEC-16.
 - Keep validating exact package manifests and dependency edges before running package scripts.
 - Add packed-artifact inspection to the release gate to confirm only intended files are present and no source maps, local paths, credentials, or test fixtures are shipped.
-- **Resolved in the Node LTS support-floor change:** package-level `engines.node` metadata, root tooling checks, release validators, and consumer documentation now require Node.js 22+. Verify the new Node 22/24 matrix before considering the change complete.
+- **Resolved in the Node LTS support-floor change:** package-level `engines.node` metadata, root tooling checks, release validators, and consumer documentation now require Node.js 22+. The Windows/Ubuntu Node 22/24 matrix and packed-consumer run passed on commit `f06e526` (run `40727208527`).
 
 ## Original validation matrix and current evidence
 

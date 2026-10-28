@@ -54,7 +54,7 @@ commands. Verify the actual checkout filesystem before relying on its atomic ope
 
 Details and limitations are recorded in [`specs/07-security-hardening.md`](../../specs/07-security-hardening.md).
 
-## Cross-platform validation: previous runtime matrix complete; new LTS matrix pending
+## Cross-platform validation: Node.js 22/24 matrix complete; runtime-gate CI pending
 
 The previous Node.js 20/24 matrix passed on commit `e06f89d6f8c090f011029fa7b0fcaccd4553eb2d`:
 
@@ -64,10 +64,12 @@ The previous Node.js 20/24 matrix passed on commit `e06f89d6f8c090f011029fa7b0fc
 - The workflow ran manifest validation, high-severity audit, full package tests, and the
   applicable consumer runtime check.
 
-Node.js 18 and 20 are now end-of-life. The current support-floor change moves the required
-matrix and packed-consumer smokes to Node.js 22 and 24. This updated LTS matrix remains
-pending until CI passes on the new commit. The v9fs probe remains separate evidence for its
-specific mount.
+Node.js 18 and 20 are end-of-life. The support-floor change moves the required matrix and
+packed-consumer smokes to Node.js 22 and 24. Both Windows/Ubuntu jobs and packed-consumer
+checks passed on commit `f06e526` in [run
+40727208527](https://github.com/trinoris/multi-agents/actions/runs/40727208527). The
+subsequent local startup advisory-gate change still requires a new CI run. The v9fs probe
+remains separate evidence for its specific mount.
 
 ## Verification-spec reconciliation: complete
 

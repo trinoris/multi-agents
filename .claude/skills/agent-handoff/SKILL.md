@@ -15,3 +15,5 @@ description: Use before editing a shared working tree with another agent, or whe
 - Write protocol 3 handoffs with locks_released: true and every required section in .trinoris/PROTOCOL.md.
 - Markers are not stolen by age. Diagnose, stop affected actors, then explicitly recover.
 - Heartbeat/daemon support is disabled in protocol 3.
+- At each new agent session cold start, run `trinoris-agent doctor --runtime` once when the installed CLI is available.
+- In this source checkout, if the CLI is not on PATH, build it from local dependencies and run `node packages/cli/dist/bin.js doctor --runtime`. The check is offline; if it reports a critical runtime advisory, stop and upgrade Node.js before using the CLI.

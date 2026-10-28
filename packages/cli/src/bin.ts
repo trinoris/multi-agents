@@ -7,6 +7,7 @@ import { acquire, acquireMany, release, renew, inspect, isHolder, breakLock, cla
 import { generateInstanceId, terminalText, identifier } from '@trinoris/agent-core';
 import { setup } from './commands/setup.js';
 import { verify } from './commands/verify.js';
+import { getRuntimeSecurityReport, shouldBlockStartup } from './runtime-security.js';
 
 const common = ['work-dir', 'agent-class', 'instance', 'json'];
 const identityCommands = new Set(['acquire', 'acquire-many', 'check', 'renew', 'release', 'break', 'claim', 'recover', 'handoff-publish', 'handoff-complete', 'handoff-wait']);
@@ -26,6 +27,7 @@ const usage = `trinoris-agent — cooperative local coordination, protocol 3
 setup [--force] [--lease-minutes N --grace-minutes N]
                                     Install the protocol and set bounded lease policy
 verify [--trials N --concurrency N]   Check protocol readiness and actual mkdir behavior
+doctor --runtime                       Show Node runtime policy and known critical advisories
 status [--scope S]                   Inspect recorded leases
 acquire --scope S [--task T]         Acquire; retain the returned generation
 acquire-many --scopes api,tests      All-or-none registry-ordered acquisition
@@ -133,6 +135,33 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
 async function main() {
   const [rawCommand, ...rawArgs] = process.argv.slice(2);
   if (rawCommand === '--version' || rawCommand === '-v') { console.log(cliVersion()); return; }
+  const runtimeReport = getRuntimeSecurityReport(process.version);
+  const invocation = [rawCommand ?? '', ...rawArgs];
+  if (shouldBlockStartup(invocation, runtimeReport)) {
+    const details = runtimeReport.criticalAdvisories.map(finding => `${finding.id} (${finding.severity.toUpperCase()}, CVSS v${finding.cvssVersion} ${finding.cvss}) · fixed in Node.js ${finding.fixedVersion} or later`).join('\n');
+    const message = `Blocked: Node.js ${runtimeReport.nodeVersion} matches a known critical advisory.\n${details}`;
+    const detail = { error: { code: 'critical_runtime_vulnerability', message }, runtimeSecurity: runtimeReport };
+    if (rawArgs.includes('--json')) console.error(JSON.stringify(detail));
+    else console.error(`${message}\n${runtimeReport.criticalAdvisories.map(finding => `Advisory: ${finding.source}`).join('\n')}\nRun “trinoris-agent doctor --runtime” for details.`);
+    process.exitCode = 78;
+    return;
+  }
+  if (rawCommand === 'doctor') {
+    if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
+      console.log('Usage: trinoris-agent doctor --runtime [--json]\n\nShow the exact Node.js runtime and known critical advisories in the bundled offline catalog.');
+      return;
+    }
+    if (rawArgs[0] !== '--runtime' || rawArgs.some(arg => !['--runtime', '--json'].includes(arg)) || rawArgs.filter(arg => arg === '--runtime').length !== 1 || rawArgs.filter(arg => arg === '--json').length > 1) {
+      throw new Error('Usage: trinoris-agent doctor --runtime [--json]');
+    }
+    const readable = runtimeReport.criticalAdvisories.length
+      ? [`Node.js ${runtimeReport.nodeVersion}: BLOCKED by known critical runtime advisory`, ...runtimeReport.criticalAdvisories.map(advisory => `${advisory.id} · ${advisory.title} · CVSS v${advisory.cvssVersion} ${advisory.cvss} · fixed in ${advisory.fixedVersion} or later · ${advisory.source}${advisory.vendorNotice ? ` · Node.js notice: ${advisory.vendorNotice}` : ''}`), `Bundled advisory catalog reviewed: ${runtimeReport.catalogUpdatedAt} (offline snapshot; it cannot include later advisories)`].join('\n')
+      : [`Node.js ${runtimeReport.nodeVersion}: ${runtimeReport.status === 'unknown' ? 'version could not be parsed; advisory status is unknown' : 'no matching critical advisory in the bundled catalog'}`, `Package support floor: Node.js ${runtimeReport.supportedMinimum}+`, `CI-tested LTS majors: ${runtimeReport.testedLtsMajors.join(', ')}`, `Bundled advisory catalog reviewed: ${runtimeReport.catalogUpdatedAt} (offline snapshot; it cannot include later advisories)`].join('\n');
+    console.log(rawArgs.includes('--json') ? JSON.stringify(runtimeReport) : readable);
+    if (runtimeReport.status === 'blocked') process.exitCode = 78;
+    else if (runtimeReport.status === 'unknown') process.exitCode = 1;
+    return;
+  }
   let command = rawCommand; let args = rawArgs;
   if (rawCommand === 'handoff') {
     const [subcommand, ...rest] = rawArgs;

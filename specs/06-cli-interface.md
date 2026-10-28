@@ -7,7 +7,7 @@ Proprietary and confidential.
 
 **Status:** Current implementation contract
 **Package:** `@trinoris/agent-cli`
-**Reviewed:** 2026-10-26
+**Reviewed:** 2026-10-28
 
 This document describes the shipped protocol 3 CLI in
 [`packages/cli/src/bin.ts`](../packages/cli/src/bin.ts). It does not promise future
@@ -76,6 +76,7 @@ label; it does not authenticate that the caller is Cursor.
 | --- | --- | --- |
 | `setup` | `--force`, `--agent-classes <csv>`, `--scopes <csv>`, `--lease-minutes <n>`, `--grace-minutes <n>` | Installs protocol 3 files and instructions in the target checkout. `--force` replaces eligible generated files and refuses retained active locks. Lease and grace values use core bounds. |
 | `verify` | `--trials <n>`, `--concurrency <n>` | Checks installed structure, configuration, protocol digest, ignore rule, and real mkdir behavior. Defaults to 50 trials and 8 workers. It uses bounded temporary worker activity. |
+| `doctor --runtime` | `--json` | Reports the exact `process.version`, package support floor, CI-tested LTS majors, and known critical runtime advisories from the bundled offline catalog. A matching critical advisory returns exit code `78`. |
 | `status` | `--scope <scope>` | Inspects lease directories. States include `free`, `held`, `expired` (with `breakable`), `malformed`, and `unknown` for an unregistered scope directory. It does not mutate state. |
 | `acquire` | `--scope <scope>`, optional `--task <text>` | Acquires one lease and returns its generation. |
 | `acquire-many` | `--scopes <csv>` | Acquires an ordered all-or-none set of leases. Newly acquired leases roll back if the batch cannot complete. |
@@ -110,6 +111,9 @@ duration. Configuration rejects `heartbeat.enabled: true`.
   `130`.
 - A failed lease check or a lease operation that reports `not-holder` returns `4`; stop
   editing immediately.
+- A known critical vulnerability in the exact running Node.js version blocks normal CLI
+  commands with exit code `78`. `doctor --runtime`, help, and version remain available to
+  explain the block and how to remediate it.
 
 When `--json` is supplied, successful results are one JSON value on stdout and failures use
 the stable top-level `error.code` / `error.message` shape on stderr. The current code is
@@ -136,6 +140,17 @@ reason text to 256 characters. These local records are not independently authent
   operation ID, or `unknown` after inspecting an incomplete marker with all actors stopped.
 - No command treats PID, age alone, heartbeat, identity labels, or a reason string as proof
   of authority.
+- Before command dispatch, the bootstrap compares the exact `process.version` against a
+  reviewed, bundled advisory catalog. A matching critical advisory blocks the command
+  before it reads or mutates coordination state. The catalog is an offline snapshot, so
+  newly published advisories are not known until a reviewed CLI update ships; `doctor`
+  prints the catalog review date and does not claim to have checked the network.
+- The current catalog includes CVE-2026-111497 with fixed Node.js versions 22.23.4,
+  24.22.1, and 26.12.1. The GitHub Advisory Database classifies it Critical (CVSS v4
+  9.2); the Node.js release notice labels the issue High. The CLI records the source of
+  its blocking classification and fixed versions instead of treating vendor labels as
+  interchangeable. See [GHSA-9v8h-qqgm-4m35](https://github.com/advisories/GHSA-9v8h-qqgm-4m35)
+  and the [Node.js security release](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases).
 - Keep secrets out of task, reason, handoff, and incident text. These fields are local
   coordination records, not a protected secret store.
 

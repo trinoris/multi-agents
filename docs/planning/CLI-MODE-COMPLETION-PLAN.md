@@ -153,10 +153,11 @@ Windows run.
 
 **TDD status:** SDK and CLI tests cover event filtering, malformed-record handling, record
 and text bounds, status state distinctions, read-only behavior, command help/version, and
-the JSON error envelope. The current coverage gate passed with 191 tests across 19 files;
-Core 89.81%, SDK 81.83%, and CLI 81.73% branch coverage. The latest pushed commit also passed
-the Windows/Ubuntu Node 20/24 workflow. That runtime matrix is being moved to Node 22/24
-because Node 18 and 20 are end-of-life.
+the JSON error envelope. The current coverage gate passed with 198 tests across 20 files;
+Core 89.81%, SDK 81.83%, and CLI 83.39% branch coverage. The Node.js 22/24 Windows/Ubuntu
+workflow passed on commit `f06e526` in run `40727208527`. A later runtime advisory gate
+adds `doctor --runtime` and blocks normal command startup on a known critical advisory
+matching the exact Node version; its bundled catalog makes no network request.
 
 ### Phase 4 — release readiness
 
@@ -168,14 +169,15 @@ because Node 18 and 20 are end-of-life.
 - Publish only after a separate explicit release instruction; never publish from CI.
 
 **Exit:** user guide, command spec, help, code, and packed-consumer behavior agree; all
-required matrix jobs pass; no daemon/heartbeat/network behavior is implied.
+required matrix jobs pass; no daemon/heartbeat behavior is implied. The runtime advisory
+gate uses a local reviewed catalog and performs no network request at startup.
 
 ## Compatibility and rollout
 
 - Existing protocol 3 lease and claim commands remain available. If command names are
   grouped under `handoff`, keep existing `claim` as an alias for one release and document
   removal only in a future major version.
-- Preserve exit codes: `0` success, `1` invalid/uncertain, `3` contention or bounded handoff timeout, `4` lease lost, `130` interrupted wait.
+- Preserve exit codes: `0` success, `1` invalid/uncertain, `3` contention or bounded handoff timeout, `4` lease lost, `78` known critical runtime advisory, `130` interrupted wait.
 - Never infer authority from `agent_class`, `agent_instance`, config, environment values,
   or handoff text; these are local coordination labels, not authentication.
 - Preserve generation-required check/renew/release semantics and the no-spin rule.
@@ -184,6 +186,7 @@ required matrix jobs pass; no daemon/heartbeat/network behavior is implied.
 
 ## Current next action
 
-Validate the Node.js 22/24 support-floor change with the full matrix, packed-consumer
-smokes on both supported LTS lines, and a clean release dry-run. Do not publish without
-a separate explicit release instruction.
+Run the full coverage gate and Windows/Ubuntu Node.js 22/24 matrix on the runtime advisory
+gate implementation. Refresh the bundled advisory catalog only from reviewed sources and
+keep its offline limitation explicit. Do not publish without a separate explicit release
+instruction.

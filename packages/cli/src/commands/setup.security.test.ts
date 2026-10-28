@@ -46,6 +46,7 @@ describe('SG-01 safe setup', () => {
     const agentInstructions = readFileSync(join(workDir, 'AGENTS.md'), 'utf8');
     expect(agentInstructions).toContain('Kiro and Cursor support it as workspace instructions');
     expect(agentInstructions).toContain('Codex, Kiro, and Cursor read AGENTS.md');
+    expect(agentInstructions).toContain('At each new agent session cold start, run `trinoris-agent doctor --runtime` once when the installed CLI is available.');
     expect(existsSync(join(workDir, '.cursor'))).toBe(false);
     expect(existsSync(join(workDir, '.kiro'))).toBe(false);
     const claudeInstructions = readFileSync(join(workDir, 'CLAUDE.md'), 'utf8');
@@ -54,6 +55,7 @@ describe('SG-01 safe setup', () => {
     expect(readFileSync(join(workDir, '.claude/skills/agent-handoff/SKILL.md'), 'utf8')).toContain('.trinoris/PROTOCOL.md');
     expect(readFileSync(join(workDir, '.claude/skills/agent-handoff/SKILL.md'), 'utf8')).toContain('.trinoris/active/<instance>/');
     expect(readFileSync(join(workDir, '.claude/skills/agent-handoff/SKILL.md'), 'utf8')).toContain('.trinoris/handoff/TEMPLATE.md');
+    expect(readFileSync(join(workDir, '.claude/skills/agent-handoff/SKILL.md'), 'utf8')).toContain('At each new agent session cold start, run `trinoris-agent doctor --runtime` once when the installed CLI is available.');
     expect(readFileSync(join(workDir, 'AGENTS.md'), 'utf8')).toContain('locks_released: true');
     expect(readFileSync(join(workDir, 'AGENTS.md'), 'utf8')).toContain('.trinoris/handoff/TEMPLATE.md');
     const config = JSON.parse(readFileSync(join(workDir, '.trinoris/config.json'), 'utf8'));

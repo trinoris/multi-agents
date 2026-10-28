@@ -13,6 +13,12 @@
 - Markers are not stolen by age. Diagnose, stop affected actors, then explicitly recover.
 - Heartbeat/daemon support is disabled in protocol 3.
 
+## Verification gate
+
+- Before committing implementation changes, run `pnpm run test:coverage` from the repository root.
+- The command runs each package's Vitest suite with V8 branch coverage and enforces at least 80% branch coverage per package. The CLI bootstrap entry point is excluded; installed CLI behavior is exercised by CLI integration tests.
+- Focused tests are useful during development, but they do not replace the full coverage gate before commit or release.
+
 <!-- TRINORIS AGENT INSTRUCTIONS START -->
 # Trinoris agent coordination
 

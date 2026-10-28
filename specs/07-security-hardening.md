@@ -74,7 +74,7 @@ requires Node.js 20+.
 Validation commands and retained results:
 
 - `pnpm run build`: passed for all three packages on 2026-10-26.
-- `pnpm run test:coverage`: passed on 2026-10-28 with 185 tests across 18 files and Core 89.81%, SDK 80.73%, and CLI command modules 81.73% V8 branch coverage. CI enforces an 80% minimum for each package; the CLI bootstrap is excluded because the built entry point is exercised by CLI integration tests.
+- `pnpm run test:coverage`: passed on 2026-10-28 with 191 tests across 19 files and Core 89.81%, SDK 81.83%, and CLI command modules 81.73% V8 branch coverage. CI enforces an 80% minimum for each package; the CLI bootstrap is excluded because the built entry point is exercised by CLI integration tests.
 - TypeScript `--noEmit` checks for core, SDK, and CLI: passed, including test sources and declarations for release helpers.
 - `node scripts/release-inputs.mjs`: all three package manifests, reviewed workspace policy, and parsed lockfile passed.
 - Refreshed npm audit: zero informational, low, moderate, high, or critical advisories.

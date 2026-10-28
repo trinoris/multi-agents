@@ -31,6 +31,7 @@ export const RELEASE_PACKAGE_SPECS = [
 const ROOT_SCRIPTS = {
   build: 'turbo run build',
   test: 'turbo run test',
+  'test:coverage': 'pnpm --recursive exec vitest run --coverage.enabled --coverage.provider=v8 --coverage.include="src/**/*.ts" --coverage.exclude="src/bin.ts" --coverage.thresholds.branches=80',
   lint: 'turbo run lint',
   dev: 'turbo run dev --parallel',
   simulate: 'pnpm --filter @trinoris/agent-cli build && node simulation/run.mjs',
@@ -40,6 +41,7 @@ const ROOT_SCRIPTS = {
 };
 
 const ROOT_DEV_DEPENDENCIES = {
+  '@vitest/coverage-v8': '4.1.12',
   turbo: '2.9.14',
   typescript: '^5.3.0',
   vitest: '^4.0.0',

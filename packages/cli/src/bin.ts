@@ -3,13 +3,13 @@
 import fs from 'node:fs';
 import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { acquire, acquireMany, release, renew, inspect, isHolder, breakLock, claim, diagnose, recoverMarker, loadConfiguration, safePath, validateHandoffDraft, publishHandoff, listHandoffs, readHandoff, completeHandoff, listIncidents } from '@trinoris/agent-sdk';
+import { acquire, acquireMany, release, renew, inspect, isHolder, breakLock, claim, diagnose, recoverMarker, loadConfiguration, safePath, validateHandoffDraft, publishHandoff, publishedHandoffStatus, listHandoffs, readHandoff, completeHandoff, listIncidents } from '@trinoris/agent-sdk';
 import { generateInstanceId, terminalText, identifier } from '@trinoris/agent-core';
 import { setup } from './commands/setup.js';
 import { verify } from './commands/verify.js';
 
 const common = ['work-dir', 'agent-class', 'instance', 'json'];
-const identityCommands = new Set(['acquire', 'acquire-many', 'check', 'renew', 'release', 'break', 'claim', 'recover', 'handoff-publish', 'handoff-complete']);
+const identityCommands = new Set(['acquire', 'acquire-many', 'check', 'renew', 'release', 'break', 'claim', 'recover', 'handoff-publish', 'handoff-complete', 'handoff-wait']);
 const allowed: Record<string, string[]> = {
   setup: ['force', 'agent-classes', 'scopes', 'lease-minutes', 'grace-minutes'], verify: ['trials', 'concurrency'], status: ['scope'],
   acquire: ['scope', 'task'], 'acquire-many': ['scopes'], check: ['scope', 'generation'],
@@ -17,6 +17,7 @@ const allowed: Record<string, string[]> = {
   claim: ['note', 'from', 'to'], diagnose: [], recover: ['marker', 'operation', 'reason', 'confirm-stopped'],
   'handoff-validate': ['note'], 'handoff-publish': ['note'], 'handoff-list': [],
   'handoff-show': ['note', 'location'], 'handoff-complete': ['note', 'outcome'],
+  'handoff-wait': ['note', 'until', 'timeout-seconds', 'interval-seconds'],
   'incidents-list': ['scope'],
 };
 const booleans = new Set(['json', 'force', 'confirm-stopped']);
@@ -39,6 +40,7 @@ handoff list                        List this class's inbox and this instance's 
 handoff show --note F [--location L] Read an authorized inbox or active note
 handoff claim --note F              Claim a note from the class inbox
 handoff complete --note F --outcome T Archive an active note and record its outcome
+handoff wait --note F               Wait boundedly for your published handoff to finish
 incidents list [--scope S]          Read bounded takeover and recovery events
 diagnose                            Read abandoned operation metadata
 recover --marker M --operation ID --reason R --confirm-stopped
@@ -47,7 +49,7 @@ recover --marker M --operation ID --reason R --confirm-stopped
 Common: --work-dir DIR --agent-class CLASS --instance ID --json
 Stateful commands require explicit --agent-class and stable --instance values.
 Reuse the same instance and retain the generation for each lease lifecycle.
-Exit: 0 success, 1 invalid/uncertain, 3 contention (do not spin), 4 lease lost.
+Exit: 0 success, 1 invalid/uncertain, 3 contention or handoff-wait timeout, 4 lease lost; 130 interrupted wait.
 Locks are advisory; they do not authenticate agents or fence an uncoordinated writer.`;
 const commandDescriptions: Record<string, string> = {
   setup: 'Install the package-owned protocol files and bounded lease policy.',
@@ -61,17 +63,20 @@ const commandDescriptions: Record<string, string> = {
   'handoff-validate': 'Validate a draft without changing it.', 'handoff-publish': 'Publish a validated draft to its declared inbox.',
   'handoff-list': 'List this class inbox, universal inbox, and this instance active notes.',
   'handoff-show': 'Read a note from an authorized managed location.', 'handoff-complete': 'Archive this instance active handoff with its outcome.',
+  'handoff-wait': 'Wait for completion of one handoff published by this identity.',
   'incidents-list': 'Read bounded takeover and recovery event summaries.',
 };
 const commandNames: Record<string, string> = {
   'acquire-many': 'acquire-many', 'handoff-validate': 'handoff validate', 'handoff-publish': 'handoff publish',
   'handoff-list': 'handoff list', 'handoff-show': 'handoff show', 'handoff-complete': 'handoff complete',
+  'handoff-wait': 'handoff wait',
   'incidents-list': 'incidents list',
 };
 const optionValues: Record<string, string> = {
   'work-dir': 'DIR', 'agent-class': 'CLASS', instance: 'ID', scope: 'SCOPE', task: 'TEXT', scopes: 'CSV',
   generation: 'ID', reason: 'TEXT', note: 'FILE', from: 'INBOX', to: 'ACTIVE_DIR', marker: 'PATH',
-  operation: 'ID', trials: 'N', concurrency: 'N', location: 'LOCATION', outcome: 'TEXT',
+  operation: 'ID', trials: 'N', concurrency: 'N', location: 'LOCATION', outcome: 'TEXT', until: 'STAGE',
+  'timeout-seconds': 'N', 'interval-seconds': 'N',
   'agent-classes': 'CSV', 'lease-minutes': 'N', 'grace-minutes': 'N',
 };
 function commandHelp(command: string): string {
@@ -87,6 +92,7 @@ function commandHelp(command: string): string {
     'handoff-list': 'trinoris-agent handoff list --work-dir REPO --agent-class codex --instance codex-1',
     'handoff-show': 'trinoris-agent handoff show --work-dir REPO --agent-class codex --note review.md',
     'handoff-complete': 'trinoris-agent handoff complete --work-dir REPO --agent-class codex --instance codex-1 --note review.md --outcome "Review passed"',
+    'handoff-wait': 'trinoris-agent handoff wait --work-dir REPO --agent-class codex --instance codex-1 --note review.md --timeout-seconds 1800',
     'incidents-list': 'trinoris-agent incidents list --work-dir REPO --scope api --json',
   };
   return `Usage: trinoris-agent ${publicName} [options]\n\n${commandDescriptions[command] ?? 'Run this protocol 3 coordination command.'}\n\nOptions:\n${options}\n  -h, --help  Show this command help\n\nExample:\n  ${examples[command] ?? `trinoris-agent ${publicName} --work-dir REPO --json`}`;
@@ -114,13 +120,23 @@ function parse(command: string, args: string[]) {
   }
   return opts;
 }
+
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolveDelay, rejectDelay) => {
+    if (signal.aborted) { rejectDelay(new Error('handoff wait interrupted')); return; }
+    const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolveDelay(); }, ms);
+    const abort = () => { clearTimeout(timer); signal.removeEventListener('abort', abort); rejectDelay(new Error('handoff wait interrupted')); };
+    signal.addEventListener('abort', abort, { once: true });
+  });
+}
+
 async function main() {
   const [rawCommand, ...rawArgs] = process.argv.slice(2);
   if (rawCommand === '--version' || rawCommand === '-v') { console.log(cliVersion()); return; }
   let command = rawCommand; let args = rawArgs;
   if (rawCommand === 'handoff') {
     const [subcommand, ...rest] = rawArgs;
-    if (!subcommand || !['validate', 'publish', 'list', 'show', 'claim', 'complete'].includes(subcommand)) throw new Error('Unknown handoff command; use --help');
+    if (!subcommand || !['validate', 'publish', 'list', 'show', 'claim', 'complete', 'wait'].includes(subcommand)) throw new Error('Unknown handoff command; use --help');
     command = subcommand === 'claim' ? 'claim' : `handoff-${subcommand}`;
     args = rest;
   }
@@ -176,6 +192,50 @@ async function main() {
   if (command === 'handoff-list') {
     if (typeof opts['agent-class'] !== 'string' || typeof opts.instance !== 'string') throw new Error('handoff list requires --agent-class and --instance so it can include the caller\'s active notes');
     output(listHandoffs(paths, { agent_class: agentClass, agent_instance: instance })); return;
+  }
+  if (command === 'handoff-wait') {
+    const until = value('until', 'completed');
+    if (!['claimed', 'completed'].includes(until)) throw new Error('--until must be claimed or completed');
+    const timeoutSeconds = Number(value('timeout-seconds', '1800'));
+    const intervalSeconds = Number(value('interval-seconds', '2'));
+    if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 86400) throw new Error('--timeout-seconds must be an integer from 1 to 86400');
+    if (!Number.isInteger(intervalSeconds) || intervalSeconds < 1 || intervalSeconds > 60) throw new Error('--interval-seconds must be an integer from 1 to 60');
+    const controller = new AbortController(); const abort = () => controller.abort();
+    process.once('SIGINT', abort); process.once('SIGTERM', abort);
+    const startedAt = Date.now(); const deadline = startedAt + timeoutSeconds * 1000;
+    let lastStatus = '';
+    try {
+      while (true) {
+        const handoff = publishedHandoffStatus(paths, required('note'), owner);
+        if (!handoff.ok) {
+          output(handoff, `Cannot track this handoff (${handoff.reason}); it must be published by this exact identity first`);
+          process.exitCode = 1; return;
+        }
+        if (!opts.json && handoff.status !== lastStatus) {
+          console.error(terminalText(`Handoff ${handoff.filename}: ${handoff.status}${handoff.recipient_instance ? ` · recipient ${handoff.recipient_instance}` : ''}`));
+          lastStatus = handoff.status;
+        }
+        const reached = until === 'completed'
+          ? handoff.status === 'completed'
+          : ['claimed', 'completing', 'completed'].includes(handoff.status);
+        if (reached) {
+          output({ ok: true, until, waited_ms: Date.now() - startedAt, handoff }, `Handoff ${handoff.filename} ${handoff.status}${handoff.outcome ? ` · ${handoff.outcome}` : ''}`);
+          return;
+        }
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) {
+          output({ ok: false, status: 'timeout', waited_ms: Date.now() - startedAt, handoff }, `Timed out waiting for handoff ${handoff.filename}; last status: ${handoff.status}`);
+          process.exitCode = 3; return;
+        }
+        await delay(Math.min(intervalSeconds * 1000, remaining), controller.signal);
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) throw error;
+      output({ ok: false, status: 'interrupted', waited_ms: Date.now() - startedAt }, 'Handoff wait interrupted');
+      process.exitCode = 130;
+    } finally {
+      process.off('SIGINT', abort); process.off('SIGTERM', abort);
+    }
   }
   if (command === 'handoff-show') {
     if (typeof opts['agent-class'] !== 'string') throw new Error('handoff show requires --agent-class');

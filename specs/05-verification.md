@@ -87,14 +87,19 @@ the old proposed `tests/` directory tree above was never the repository layout.
 
 | Package | Files | Cases | Coverage focus |
 | --- | ---: | ---: | --- |
-| `packages/core` | 3 | 37 | Protocol contract, v2/v3 handoff parsing, input/schema validation, bounded terminal output, default agent routing classes |
-| `packages/sdk` | 6 | 50 | Path and file safety, generation ownership, leases, claims, guarded recovery, incidents, and real-process concurrency |
-| `packages/cli` | 6 | 69 | Setup/ignore/readiness, verifier probe behavior, CLI journeys, release input policy, tarball inspection, and offline consumer install |
+| `packages/core` | 4 | 45 | Protocol contract, v2/v3 handoff parsing, input/schema validation, bounded terminal output, default agent routing classes |
+| `packages/sdk` | 8 | 61 | Path and file safety, generation ownership, leases, claims, guarded recovery, incidents, and real-process concurrency |
+| `packages/cli` | 6 | 79 | Setup/ignore/readiness, verifier probe behavior, CLI journeys, release input policy, tarball inspection, and offline consumer install |
 
-On 2026-10-28, `pnpm run test --force` passed locally on the current working tree: 156
-tests across 15 files (37 core, 50 SDK, 69 CLI). This includes the Cursor default-routing
-class and generated AGENTS.md instructions. It is a local Linux result; it does not replace
-the fresh Windows/Ubuntu CI run required for the uncommitted edits.
+On 2026-10-28, the full coverage gate passed locally on Linux: 185 tests across 18 files
+(45 core, 61 SDK, 79 CLI). It does not replace the fresh Windows/Ubuntu CI run required
+for these uncommitted edits.
+
+`pnpm run test:coverage` is the branch-coverage gate in CI. It runs the Vitest suite for
+each workspace package with V8 coverage and requires at least 80% branch coverage per
+package. On 2026-10-28 it passed with Core at 89.81%, SDK at 80.73%, and CLI command
+modules at 81.73%. The CLI bootstrap wrapper (`packages/cli/src/bin.ts`) is excluded from
+source coverage because the installed CLI journey tests exercise its built entry point.
 
 The suite uses both unit tests and real child-process integration tests. Mocked tests do not
 replace the per-environment `verify` probe. Heartbeat/daemon behavior is intentionally
@@ -105,7 +110,7 @@ unsupported in protocol 3 and is not a pending acceptance criterion.
 The CLI verifier distinguishes three outcomes so an execution restriction cannot be
 mistaken for a filesystem race:
 
-- **ATOMIC** is reported only after every requested trial completed and each worker
+- **ATOMIC** is reported only after every requested trial completed and each worker thread
   returned exactly one valid outcome, with one winner per trial.
 - **NOT ATOMIC** is reported only after workers completed normally and the observed
   winner count violated that condition.
@@ -113,16 +118,16 @@ mistaken for a filesystem race:
   failed, or workers exceeded the 15-second timeout. This is inconclusive; it must not be
   recorded as a filesystem atomicity failure.
 
-Codex, IDE, and CI sandboxes may block child processes or filesystem metadata commands.
-The verifier reports those failures separately; `filesystem unknown` is a diagnostic
-warning and does not determine the atomicity result. Rerun the gate with permission to
-create child processes, targeting the same working tree. Do not infer that a different
-temporary directory has the same filesystem behavior. The concurrency setting must be at
-least 2; one worker cannot establish cross-process exclusivity.
+The verifier uses Node worker threads for concurrent filesystem calls and `statfsSync`
+for filesystem identification; it does not launch a shell or child process. When the
+filesystem metadata API is unavailable or fails, `filesystem unknown` is a diagnostic
+warning and does not determine the atomicity result. Run the probe against the intended
+working tree; a different temporary directory may use a different filesystem. The
+concurrency setting must be at least 2; a single worker cannot test concurrent exclusivity.
 
-The CLI package tests cover invalid trial/concurrency settings, worker spawn failure, and
-worker timeout reporting. The end-to-end adoption gate must still be run on each target
-filesystem because the unit tests do not establish that filesystem's behavior.
+The CLI package tests cover invalid trial/concurrency settings, worker failure, timeout,
+abort, malformed outcomes, and cleanup. The end-to-end adoption gate must still be run on
+each target filesystem because unit tests do not establish that filesystem's behavior.
 
 **Correction to an earlier claim in this spec.** `MA-T10` was described as impossible to
 automate in one environment. That was wrong: `powershell.exe` is reachable directly from

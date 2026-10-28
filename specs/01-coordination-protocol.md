@@ -291,6 +291,9 @@ A consuming tree may keep a copy of the format as `.trinoris/TEMPLATE-handoff.md
 spec is authoritative.
 
 Release your locks **before** writing the note, so peers can act on it immediately.
+After publishing, the sender may explicitly run the bounded `handoff wait` command for
+that exact filename and publishing identity. Waiting holds no scope lock; it follows
+receipt-backed claim/completion state and is independent of the no-spin contention rule.
 
 ### Claiming one
 

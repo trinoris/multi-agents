@@ -113,4 +113,14 @@ describe('SG-01 safe setup', () => {
     expect(ignore.startsWith('build/\n')).toBe(true);
     expect(ignore.split('\n').filter(line => line === '/.trinoris/')).toHaveLength(1);
   });
+  it('preserves archived handoff history when force-refreshing generated files', () => {
+    const workDir = fixture(); setup({ workDir });
+    const indexPath = join(workDir, '.trinoris/archive/INDEX.md');
+    const archivedHistory = '# Handoff archive\n\nExisting audit history must remain.\n';
+    writeFileSync(indexPath, archivedHistory);
+
+    setup({ workDir, force: true, leaseMinutes: 30 });
+
+    expect(readFileSync(indexPath, 'utf8')).toBe(archivedHistory);
+  });
 });

@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 export function validatePackedFiles(files, expected) {
   const names = new Set();
   for (const file of files) {
-    if (names.has(file.name) || file.type !== 'file' || !/^package\/(?:package\.json|README(?:\.md)?|LICENSE(?:\.md)?|dist\/(?:index|bin)\.(?:js|cjs|d\.ts|d\.cts))$/i.test(file.name)) throw new Error('Unexpected or linked packed member');
+    if (names.has(file.name) || file.type !== 'file' || !/^package\/(?:package\.json|README(?:\.md)?|LICENSE(?:\.md)?|dist\/(?:index|bin)\.(?:js|cjs|d\.ts|d\.cts)|dist\/race-worker\.mjs)$/i.test(file.name)) throw new Error('Unexpected or linked packed member');
     names.add(file.name);
     if (file.content.length > 1_000_000 || /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\bAKIA[A-Z0-9]{16}\b|\bnpm_[A-Za-z0-9]{30,}\b|\bgh[pousr]_[A-Za-z0-9]{30,}\b|\/mnt\/[a-z]\/[Uu]sers\//.test(file.content)) throw new Error('Sensitive or oversized packed content');
   }
@@ -16,7 +16,13 @@ export function validatePackedFiles(files, expected) {
   const pkg = JSON.parse(files.find(f => f.name === 'package/package.json').content);
   if (pkg.name !== expected.name || pkg.version !== expected.version || !isDeepStrictEqual(pkg.dependencies ?? {}, expected.dependencies) || pkg.engines?.node !== '>=18.0.0') throw new Error('Packed manifest does not match reviewed versions/dependencies/runtime');
   if (['prepack', 'prepare', 'prepublish', 'prepublishOnly', 'postpublish', 'install', 'postinstall'].some(k => pkg.scripts?.[k])) throw new Error('Packed lifecycle hook');
-  if (expected.name === '@trinoris/agent-cli' && !names.has('package/dist/bin.js')) throw new Error('Missing CLI executable');
+  if (expected.name === '@trinoris/agent-cli') {
+    if (!names.has('package/dist/bin.js') || !names.has('package/dist/race-worker.mjs')) throw new Error('Missing CLI executable or verifier worker');
+    for (const entry of ['package/dist/index.cjs', 'package/dist/bin.cjs', 'package/dist/bin.js']) {
+      const code = files.find(file => file.name === entry)?.content ?? '';
+      if (/node:child_process|(?:require|from)\s*\(["']child_process["']\)|from\s+["']node:child_process["']/.test(code)) throw new Error(`CLI bundle ${entry} must not import child_process`);
+    }
+  }
   return pkg;
 }
 

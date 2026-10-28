@@ -7,14 +7,15 @@
  * The protocol rests on `mkdir` being atomic on the target filesystem. If it is not,
  * the protocol does not apply to that tree and must not be installed. So this races
  * real OS processes rather than checking a flag: the whole point is to find out whether
- * this filesystem behaves, not whether we believe it does.
+ * this filesystem behaves, not whether we believe it does. Worker threads issue
+ * the mkdir calls concurrently without starting a shell or subprocess.
  */
 
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import fs, { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
-import { execFileSync, spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
+import { Worker } from 'node:worker_threads';
 import { PROTOCOL_TEXT, PROTOCOL_VERSION } from '@trinoris/agent-core';
 import { loadConfiguration, readText, removeOwnedDirectory, safePath } from '@trinoris/agent-sdk';
 
@@ -49,100 +50,83 @@ function validateOptions(trials: number, concurrency: number): void {
   if (trials * concurrency > 1024) throw new RangeError('trials x concurrency must be at most 1024');
 }
 
-function filesystemOf(path: string, remainingMs: number): { name: string; warning?: string } {
+function filesystemOf(path: string): { name: string; warning?: string } {
   try {
-    return { name: execFileSync('stat', ['-f', '-c', '%T', '--', path], { encoding: 'utf8', timeout: Math.max(1, Math.min(2000, remainingMs)), maxBuffer: 4096 }).trim() };
+    // Node 18.0-18.14 did not expose statfsSync; keep the CLI usable there.
+    if (typeof fs.statfsSync !== 'function') return { name: 'unknown', warning: 'filesystem type is unavailable in this Node.js version' };
+    const type = fs.statfsSync(path).type >>> 0;
+    const known: Record<number, string> = { 0xef53: 'ext-family', 0x794c7630: 'overlayfs', 0x6969: 'nfs', 0x01021994: 'tmpfs', 0x01021997: '9p' };
+    return { name: known[type] ?? `fs-type-0x${type.toString(16)}` };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     return { name: 'unknown', warning: `could not identify filesystem type: ${detail}` };
   }
 }
 
-/**
- * One trial: N real processes race a single mkdir, released together by a barrier file.
- *
- * Each process reports READY before the parent releases the barrier, so every
- * contender is known to have started before the race begins.
- */
+/** One trial: N worker threads race the same filesystem mkdir after a shared barrier. */
 async function raceOnce(lockPath: string, barrier: string, n: number, timeoutMs: number, signal?: AbortSignal): Promise<number> {
   if (signal?.aborted) throw new Error('probe aborted');
-  const child = `
-    const fs = require('node:fs');
-    const lockPath = process.argv[1];
-    const barrierPath = process.argv[2];
-    process.stdout.write('READY\\n');
-    const deadline = Date.now() + 15000;
-    const parent = Number(process.argv[3]);
-    (async () => {
-    while (!fs.existsSync(barrierPath)) {
-      if (Date.now() > deadline || process.ppid !== parent) throw new Error('barrier timeout or parent stopped');
-      await new Promise(resolve => setTimeout(resolve, 5));
-    }
-    try {
-      fs.mkdirSync(lockPath);
-      process.stdout.write('WIN\\n');
-    } catch (error) {
-      if (error.code === 'EEXIST' || error.code === 'EISDIR') process.stdout.write('LOSE\\n');
-      else {
-        process.stderr.write(String(error.stack || error));
-        process.exitCode = 1;
-      }
-    }
-    })().catch(error => { process.stderr.write(String(error.message)); process.exitCode = 1; });
-  `;
-  const children = Array.from({ length: n }, () => {
-    const p = spawn(process.execPath, ['-e', child, lockPath, barrier, String(process.pid)], { stdio: ['ignore', 'pipe', 'pipe'] });
-    let out = '';
-    let stderr = '';
+  const sharedBarrier = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT);
+  let timedOut = false;
+  const workers: Array<{ worker: Worker; readyPromise: Promise<void>; resultPromise: Promise<{ code: number | null; signal: null; error?: string }>; output: () => string }> = [];
+  try {
+   for (let index = 0; index < n; index++) {
+    const worker = new Worker(new URL('./race-worker.mjs', import.meta.url), { workerData: { lockPath, barrier: sharedBarrier, timeoutMs } });
+    let output = '';
+    let workerError: string | undefined;
     let ready = false;
     let readyResolve!: () => void;
     let readyReject!: (error: Error) => void;
-    let resultResolve!: (result: { code: number | null; signal: NodeJS.Signals | null; error?: string }) => void;
+    let resultResolve!: (result: { code: number | null; signal: null; error?: string }) => void;
     const readyPromise = new Promise<void>((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
-    const resultPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | null; error?: string }>((resolve) => { resultResolve = resolve; });
-    p.on('error', (error) => {
-      const detail = `could not start race worker: ${error.message}`;
+    // A later Worker constructor can fail before the shared Promise.all is formed.
+    // Mark this promise handled immediately; callers still observe the original rejection.
+    void readyPromise.catch(() => undefined);
+    const resultPromise = new Promise<{ code: number | null; signal: null; error?: string }>((resolve) => { resultResolve = resolve; });
+    worker.on('message', (message: { type?: string; outcome?: string; error?: string }) => {
+      if (message?.type === 'ready' && !ready) { ready = true; output += 'READY\n'; readyResolve(); }
+      else if (message?.type === 'outcome' && (message.outcome === 'WIN' || message.outcome === 'LOSE')) output += `${message.outcome}\n`;
+      else if (message?.type === 'error') workerError = message.error ?? 'unknown worker error';
+    });
+    worker.on('error', (error) => {
+      const detail = `race worker failed: ${error.message}`;
+      workerError = detail;
       readyReject(new Error(detail));
-      resultResolve({ code: null, signal: null, error: detail });
     });
-    p.stdout.on('data', (d) => { out += d.toString(); if (out.length > 256) p.kill('SIGKILL'); });
-    p.stderr.on('data', (d) => { stderr += d.toString(); if (stderr.length > 4096) p.kill('SIGKILL'); });
-    p.stdout.on('data', () => {
-      if (!ready && /^READY$/m.test(out)) {
-        ready = true;
-        readyResolve();
-      }
-    });
-    p.on('close', (code, signal) => {
+    worker.on('exit', (code) => {
       if (!ready) {
-        const reason = timedOut
-          ? `race workers timed out after ${timeoutMs / 1000}s`
-          : `race worker exited before READY (code ${code}, signal ${signal ?? 'none'})${stderr ? `: ${stderr.trim()}` : ''}`;
+        const reason = timedOut ? `race workers timed out after ${timeoutMs / 1000}s` : `race worker exited before READY (code ${code})`;
         readyReject(new Error(reason));
       }
-      resultResolve({ code, signal, ...(stderr ? { error: stderr.trim() } : {}) });
+      resultResolve({ code, signal: null, ...(workerError ? { error: workerError } : {}) });
     });
-    return { p, readyPromise, resultPromise, output: () => out };
-  });
+    workers.push({ worker, readyPromise, resultPromise, output: () => output });
+   }
+  } catch (error) {
+    for (const entry of workers) void entry.worker.terminate();
+    await Promise.all(workers.map(entry => entry.resultPromise));
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`could not start race worker: ${detail}`, { cause: error });
+  }
 
-  let timedOut = false;
   const timeout = setTimeout(() => {
     timedOut = true;
-    for (const child of children) child.p.kill('SIGKILL');
+    for (const entry of workers) void entry.worker.terminate();
   }, timeoutMs);
-  const abort = () => { for (const child of children) child.p.kill('SIGKILL'); };
+  const abort = () => { for (const entry of workers) void entry.worker.terminate(); };
   signal?.addEventListener('abort', abort, { once: true });
   try {
-    await Promise.all(children.map(child => child.readyPromise));
-    writeFileSync(barrier, 'release\n', { encoding: 'utf8', flag: 'wx', mode: 0o600 });
-    const results = await Promise.all(children.map(child => child.resultPromise));
+    await Promise.all(workers.map(entry => entry.readyPromise));
+    Atomics.store(new Int32Array(sharedBarrier), 0, 1);
+    Atomics.notify(new Int32Array(sharedBarrier), 0, n);
+    const results = await Promise.all(workers.map(entry => entry.resultPromise));
     if (signal?.aborted) throw new Error('probe aborted');
     if (timedOut) throw new Error(`race workers timed out after ${timeoutMs / 1000}s`);
     const errors: string[] = [];
     let winners = 0;
     let losers = 0;
     results.forEach((result, index) => {
-      const output = children[index].output();
+      const output = workers[index].output();
       const outcomes = output.match(/^(WIN|LOSE)$/gm) ?? [];
       if (result.error) errors.push(`worker ${index}: ${result.error}`);
       else if (result.code !== 0) errors.push(`worker ${index} exited with code ${result.code}, signal ${result.signal ?? 'none'}`);
@@ -154,12 +138,12 @@ async function raceOnce(lockPath: string, barrier: string, n: number, timeoutMs:
     if (winners + losers !== n) throw new Error(`received ${winners + losers} race outcomes from ${n} workers`);
     return winners;
   } catch (error) {
-    for (const child of children) child.p.kill('SIGKILL');
+    for (const entry of workers) void entry.worker.terminate();
     throw error;
   } finally {
     clearTimeout(timeout);
     signal?.removeEventListener('abort', abort);
-    await Promise.all(children.map(child => child.resultPromise));
+    await Promise.all(workers.map(entry => entry.resultPromise));
   }
 }
 
@@ -228,7 +212,7 @@ export async function verify(workDir: string, trials = 50, concurrency = 8, opti
       break;
     }
   }
-  const filesystemInfo = filesystemOf(arena, deadline - Date.now());
+  const filesystemInfo = filesystemOf(arena);
   filesystem = filesystemInfo.name;
   if (filesystemInfo.warning) notes.push(filesystemInfo.warning);
   } finally { removeOwnedDirectory(arenaBase, arena); }

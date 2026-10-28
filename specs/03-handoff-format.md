@@ -41,6 +41,23 @@ checked, and what the next agent should do** — including work that produced no
 ends worth not repeating, and things believed but unverified. None of that fits in a commit
 message, and all of it is what the peer needs.
 
+## Sender wait
+
+After a successful publish, the sender can opt in to `handoff wait --note <filename>`.
+The wait is bound to the publication receipt created for that exact filename, sender
+class/instance, and content digest. It follows these states: `publishing`, `published`,
+`claiming`, `claimed`, `completing`, and `completed`. Missing or conflicting receipt state
+is an error; disappearance of the inbox file alone is never treated as completion.
+
+The wait defaults to `--until completed`; `--until claimed` returns at `claimed` or any
+later state. Polling is bounded: timeout defaults to 1800 seconds and accepts 1–86400;
+interval defaults to 2 seconds and accepts 1–60. Timeout exits `3`, and Ctrl-C/SIGTERM
+exits `130`. The wait holds no editing scope and does not keep a mutation guard between
+polls. It requires the same filesystem-visible working tree; it does not coordinate
+separate clones or machines. This facility is only for tracking an already-published
+handoff. Contention and claim conflicts remain one-shot outcomes and must not be retried in
+a loop.
+
 ## Lifecycle
 
 ```text

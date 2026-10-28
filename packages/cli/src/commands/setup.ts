@@ -112,6 +112,7 @@ export function setup(opts: SetupOptions): SetupResult {
     for (const d of dirs) directory(root, join(coord, d));
     for (const [name, content] of files) {
       const target = join(root, name); const exists = safePath(root, target);
+      if (name === '.trinoris/archive/INDEX.md' && exists) { result.skipped.push(target); continue; }
       if (exists && !opts.force && (name !== 'CLAUDE.md' && name !== 'AGENTS.md' || content === (name === 'CLAUDE.md' ? claudeText : agentsText))) { result.skipped.push(target); continue; }
       writeAtomic(root, target, content, !exists);
       (exists ? result.replaced : result.created).push(target);

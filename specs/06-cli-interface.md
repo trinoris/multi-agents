@@ -32,8 +32,10 @@ separate working trees or an enforcing service when strict write exclusion is re
 
 The CLI never waits or polls on contention, automatically breaks a lock, renews a lease in
 the background, or steals a marker because of age or PID. A caller receiving contention
-must choose other work or stop. Recovery requires explicit operator confirmation that the
-affected actors have stopped.
+must choose other work or stop. The explicit `handoff wait` command is a separate,
+bounded wait for one exact handoff that this identity already published; it holds no scope
+lease and does not retry contested mutations. Recovery requires explicit operator
+confirmation that the affected actors have stopped.
 
 ## Invocation
 
@@ -88,6 +90,7 @@ label; it does not authenticate that the caller is Cursor.
 | `handoff show` | `--note <filename>`, `--agent-class`, optional `--instance`, `--location inbox\|universal\|active` | Reads only a managed inbox or the caller's own active directory. `--instance` is required for `active`. |
 | `handoff claim` | Same as `claim` | Compatibility spelling for the guarded claim operation. |
 | `handoff complete` | `--note <filename>`, `--outcome <text>`, `--agent-class`, `--instance` | Completes and archives an active note. Writes an idempotent receipt and archive index entry; does not overwrite another archive entry. |
+| `handoff wait` | `--note <filename>`, optional `--until claimed\|completed`, `--timeout-seconds`, `--interval-seconds`, `--agent-class`, `--instance` | Follows the exact publication receipt and digest owned by this identity. Defaults to archived completion; `--until claimed` returns once claimed or later. Bounded polling only; holds no scope lease. |
 | `diagnose` | none | Read-only inspection of abandoned mutation, recovery, break, and claim markers. |
 | `incidents list` | optional `--scope <scope>` | Lists up to 200 newest bounded summaries from retained incident events; scans at most 5000 candidate files and reads at most 16 KiB per event. A scoped query returns only matching registered scopes. Malformed events are identified by filename without rendering their contents. |
 | `recover` | `--marker <path>`, `--operation <id or unknown>`, `--reason <text>`, `--confirm-stopped` | Explicitly recovers an exact diagnosed marker after all affected actors have stopped. |
@@ -103,6 +106,8 @@ duration. Configuration rejects `heartbeat.enabled: true`.
   return `1`.
 - Contention, a held scope, a busy mutation guard, or a note claimed by another actor
   returns `3`. Do not retry in a loop.
+- A bounded `handoff wait` timeout returns `3`; interruption by Ctrl-C/SIGTERM returns
+  `130`.
 - A failed lease check or a lease operation that reports `not-holder` returns `4`; stop
   editing immediately.
 
@@ -137,8 +142,13 @@ reason text to 256 characters. These local records are not independently authent
 ## Handoff workflow
 
 Create a protocol 3 note in `.trinoris/handoff/drafts/`, validate it, release owned scopes,
-then publish it. The recipient lists and reads only its routed inbox, claims the note into
-its own active directory, and completes it with a recorded outcome when done. See the
+then publish it. The sender may run `handoff wait --note <filename>` to follow that exact
+publication until it is claimed or completed. Waiting correlates the publication receipt,
+content digest, and recipient claim/completion receipts; it does not treat a missing inbox
+file alone as completion. Defaults are 1800 seconds total and 2 seconds between checks;
+both limits are configurable and bounded. The wait holds no scope lease and requires the
+same shared working tree. The recipient lists and reads only its routed inbox, claims the
+note into its own active directory, and completes it with a recorded outcome when done. See the
 [`@trinoris/agent-cli` guide](../packages/cli/README.md) for examples and
 [`specs/03-handoff-format.md`](03-handoff-format.md) for the note schema.
 

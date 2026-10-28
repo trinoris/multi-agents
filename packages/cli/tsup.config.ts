@@ -1,4 +1,5 @@
 import { defineConfig } from 'tsup';
+import { copyFileSync, mkdirSync } from 'node:fs';
 
 export default defineConfig({
   entry: ['src/index.ts', 'src/bin.ts'],
@@ -7,4 +8,8 @@ export default defineConfig({
   clean: true,
   splitting: false,
   shims: true,
+  onSuccess: () => {
+    mkdirSync('dist', { recursive: true });
+    copyFileSync('src/commands/race-worker.mjs', 'dist/race-worker.mjs');
+  },
 });

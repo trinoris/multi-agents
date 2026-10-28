@@ -43,6 +43,20 @@ describe('bounded read-only incident listing', () => {
     expect(JSON.stringify(event)).not.toContain('secret');
   });
 
+  it('projects optional actor metadata without leaking non-string fields', () => {
+    const p = fixture(); const id = '66666666-6666-4666-8666-666666666666';
+    writeEvent(p, id, 'completed', {
+      schema_version: 2, operation_id: id, stage: 'completed', at: '2026-10-26T14:00:00.000Z',
+      action: 'handoff-complete', scope: 'api', actor: { agent_class: 'codex', agent_instance: 'session-1', ignored: 'secret' },
+      reason: 42, state_committed: false,
+    });
+    expect(listIncidents(p, 'api')[0]).toMatchObject({
+      valid: true, action: 'handoff-complete', scope: 'api', state_committed: false,
+      actor: { agent_class: 'codex', agent_instance: 'session-1' },
+    });
+    expect(listIncidents(p, 'tests')).toEqual([]);
+  });
+
   it('bounds event count and field lengths', () => {
     const p = fixture(); const id = '44444444-4444-4444-8444-444444444444';
     writeEvent(p, id, 'failed', {

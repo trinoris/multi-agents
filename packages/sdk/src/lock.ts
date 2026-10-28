@@ -351,6 +351,91 @@ export function publishHandoff(p: LockPaths, filename: string, owner: AgentIdent
   });
 }
 
+export type PublishedHandoffStatus = {
+  ok: true;
+  filename: string;
+  digest: string;
+  status: 'publishing' | 'published' | 'claiming' | 'claimed' | 'completing' | 'completed';
+  recipient_instance?: string;
+  outcome?: string;
+  completed_at?: string;
+};
+
+/** Read the lifecycle of one handoff published by this exact local identity. */
+export function publishedHandoffStatus(p: LockPaths, filename: string, owner: AgentIdentity): PublishedHandoffStatus | Failure {
+  handoffFilename(filename); identity(owner);
+  if (!safePath(p.root)?.isDirectory()) throw new Error('Missing safe .trinoris root');
+  const sourceRelative = `handoff/drafts/${filename}`;
+  const receiptId = digest(`publish:${join(p.root, sourceRelative)}:${owner.agent_instance}`);
+  const publication = parseReceipt(readText(p.root, join(p.root, 'published', `${receiptId}.json`), 16384));
+  if (!publication) return fail('missing');
+  if (publication.invalid || publication.source !== sourceRelative || publication.published_by !== owner.agent_instance || publication.published_class !== owner.agent_class || typeof publication.digest !== 'string' || !/^[a-f0-9]{64}$/.test(publication.digest)) return fail('destination-conflict');
+  const destinationParts = typeof publication.destination === 'string' ? publication.destination.split('/') : [];
+  if (destinationParts.length !== 3 || destinationParts[0] !== 'handoff' || !destinationParts[1].startsWith('for-') || destinationParts[2] !== filename) return fail('destination-conflict');
+  try { identifier(destinationParts[1].slice('for-'.length), 'recipient class'); } catch { return fail('destination-conflict'); }
+  const expectedDigest = publication.digest as string;
+  const publicationState = (status: PublishedHandoffStatus['status'], extra: Partial<PublishedHandoffStatus> = {}): PublishedHandoffStatus => ({ ok: true, filename, digest: expectedDigest, status, ...extra });
+
+  // Completion writes its receipt before the archive move; this can expose a short
+  // `completing` state, but a completed status requires the archived digest to match.
+  const archiveDir = join(p.root, 'archive');
+  const archiveStat = safePath(p.root, archiveDir);
+  if (archiveStat && !archiveStat.isDirectory()) throw new Error('Archive location must be a directory');
+  if (archiveStat) {
+    const receipts = fs.readdirSync(archiveDir).filter(name => /^\.[a-f0-9]{64}\.receipt\.json$/.test(name));
+    if (receipts.length > 5000) throw new Error('Handoff status exceeds the archive receipt scan limit');
+    for (const name of receipts) {
+      const receipt = parseReceipt(readText(p.root, join(archiveDir, name), 16384));
+      if (!receipt || receipt.original_digest !== expectedDigest || receipt.from_instance !== owner.agent_instance || (receipt.from_class !== undefined && receipt.from_class !== owner.agent_class)) continue;
+      if (receipt.archived !== `archive/${filename}` || typeof receipt.source !== 'string' || !receipt.source.startsWith('active/') || !receipt.source.endsWith(`/${filename}`)) return fail('destination-conflict');
+      const recipient = receipt.source.slice('active/'.length, -(`/${filename}`).length);
+      try { identifier(recipient, 'recipient instance'); } catch { return fail('destination-conflict'); }
+      if (typeof receipt.completed_digest !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.completed_digest)) return fail('destination-conflict');
+      const archived = readText(p.root, join(p.root, receipt.archived), 262144);
+      if (archived === null) return publicationState('completing', { recipient_instance: recipient });
+      if (digest(archived) !== receipt.completed_digest) return fail('destination-conflict');
+      return publicationState('completed', {
+        recipient_instance: recipient,
+        ...(typeof receipt.outcome === 'string' ? { outcome: receipt.outcome } : {}),
+        ...(typeof receipt.completed_at === 'string' ? { completed_at: receipt.completed_at } : {}),
+      });
+    }
+  }
+
+  // Claim receipts are retained in each claimant's active directory after completion.
+  // They let the original sender observe a claim without granting access to arbitrary notes.
+  const activeRoot = join(p.root, 'active');
+  const activeStat = safePath(p.root, activeRoot);
+  if (activeStat && !activeStat.isDirectory()) throw new Error('Active handoff location must be a directory');
+  if (activeStat) {
+    const instances = fs.readdirSync(activeRoot, { withFileTypes: true }).filter(entry => entry.isDirectory());
+    if (instances.length > 5000) throw new Error('Handoff status exceeds the active instance scan limit');
+    let scanned = 0;
+    for (const entry of instances) {
+      try { identifier(entry.name, 'recipient instance'); } catch { continue; }
+      const instanceDir = join(activeRoot, entry.name);
+      if (!safePath(p.root, instanceDir)?.isDirectory()) continue;
+      const names = fs.readdirSync(instanceDir).filter(name => /^[a-f0-9]{64}\.receipt\.json$/.test(name));
+      scanned += names.length;
+      if (scanned > 5000) throw new Error('Handoff status exceeds the claim receipt scan limit');
+      for (const name of names) {
+        const receipt = parseReceipt(readText(p.root, join(instanceDir, name), 16384));
+        if (!receipt || receipt.source !== publication.destination || receipt.digest !== expectedDigest || receipt.claimed_by !== entry.name || typeof receipt.claimed_class !== 'string') continue;
+        const activeNote = readText(p.root, join(instanceDir, filename), 262144);
+        if (activeNote === null) return publicationState('claiming', { recipient_instance: entry.name });
+        if (digest(activeNote) !== expectedDigest) return fail('destination-conflict');
+        return publicationState('claimed', { recipient_instance: entry.name });
+      }
+    }
+  }
+
+  const publishedNote = readText(p.root, join(p.root, publication.destination as string), 262144);
+  if (publishedNote !== null) return digest(publishedNote) === expectedDigest ? publicationState('published') : fail('destination-conflict');
+  const draft = readText(p.root, join(p.root, sourceRelative), 262144);
+  if (draft !== null && digest(draft) === expectedDigest) return publicationState('publishing');
+  return fail('destination-conflict');
+}
+
 /** List the caller's inboxes and, when created, their own active notes. */
 export function listHandoffs(p: LockPaths, owner: AgentIdentity): HandoffListEntry[] {
   identity(owner); if (!safePath(p.root)?.isDirectory()) throw new Error('Missing safe .trinoris root');

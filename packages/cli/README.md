@@ -120,6 +120,8 @@ trinoris-agent handoff show --work-dir /repo --agent-class claude \
   --instance claude-session-b --note review.md --location active
 trinoris-agent handoff complete --work-dir /repo --agent-class claude \
   --instance claude-session-b --note review.md --outcome 'Review passed.' --json
+trinoris-agent handoff wait --work-dir /repo --agent-class codex \
+  --instance codex-session-a --note review.md --timeout-seconds 1800
 ```
 
 `list` requires both class and instance so it can include that instance's active notes.
@@ -132,6 +134,23 @@ same filename with the same identity and content/outcome; conflicting content is
 The recipient must claim before completion. Completion records the outcome in the archived
 note and adds one archive index entry. `claim --note ...` remains available as a compatibility
 alias for `handoff claim`.
+
+After publishing, the sender may explicitly wait for that exact handoff's lifecycle:
+
+```bash
+trinoris-agent handoff wait --work-dir /repo --agent-class codex \
+  --instance codex-session-a --note review.md --until completed \
+  --timeout-seconds 1800 --interval-seconds 2
+```
+
+Wait is opt-in and bounded. It follows the publication receipt and content digest for the
+same filename and publishing identity; it does not wait for arbitrary notes or infer
+completion from disappearance. The default `--until completed` returns the archived
+outcome. `--until claimed` returns once an eligible recipient has claimed the note.
+Timeout is 1–86400 seconds (default 1800), polling interval is 1–60 seconds (default 2),
+and timeout returns exit code `3`; Ctrl-C returns `130`. The command holds no scope lease
+while waiting. It requires the same local working tree to be visible to both agents and
+does not relax the no-retry rule for lock contention or claim conflicts.
 
 ## Inspecting status and incidents
 
@@ -306,7 +325,8 @@ run protocol 2 and 3 clients concurrently.
 | --- | --- | --- |
 | 0 | Success | Retain returned generation/receipt; continue within its scope |
 | 1 | Invalid input, incomplete readiness, conflict, or uncertain I/O | Inspect and correct; do not assume success |
-| 3 | Contention | Pick other work or hand off; never spin |
+| 3 | Contention or bounded handoff-wait timeout | On contention, pick other work; never spin. On timeout, inspect the handoff status before deciding what to do |
+| 130 | Handoff wait interrupted by Ctrl-C | Resume or inspect the handoff later |
 | 4 | Lease lost or cannot be confirmed | Stop editing and safely reacquire |
 
 `--json` gives structured stdout. Errors use bounded escaped stderr. Keep secrets out of

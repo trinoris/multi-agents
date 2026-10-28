@@ -24,6 +24,7 @@ describe('SG-08 installed release artifacts', () => {
         return inspectTarball(file, { name: pkg.name, version: pkg.version, dependencies: Object.fromEntries(Object.keys(pkg.dependencies ?? {}).map(name => [name, versions[name]])) });
       });
       expect(artifacts).toHaveLength(3); artifacts.forEach(a => expect(a.sha256).toMatch(/^[a-f0-9]{64}$/));
+      expect(artifacts[2].files).toContain('package/dist/race-worker.mjs');
       smokeTarballs(artifacts, arena, env, execute);
     } finally { fs.rmSync(arena, { recursive: true, force: true }); }
   }, 60000);

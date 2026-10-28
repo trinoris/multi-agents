@@ -16,6 +16,39 @@ function fixture() {
 afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 
 describe('SG-03 scope and Git policy', () => {
+  it('fails closed for missing roots and non-directory lock records', () => {
+    const absent = join(tmpdir(), `agent-policy-absent-${Date.now()}`);
+    expect(() => inspect({ root: absent }, 'api', 5)).toThrow(/root/i);
+    const p = fixture(); fs.writeFileSync(join(p.root, 'locks/api.lock'), 'not a directory');
+    expect(() => inspect(p, 'api', 5)).toThrow(/lock must be a directory/i);
+  });
+
+  it('handles absent generation guards and does not require an acquisition task', () => {
+    const p = fixture();
+    expect(isHolder(p, 'api', a.agent_instance)).toBe(false);
+    expect(renew(p, 'api', a.agent_instance, 15)).toMatchObject({ ok: false, reason: 'not-holder' });
+    expect(release(p, 'api', a.agent_instance)).toMatchObject({ ok: false, reason: 'not-holder' });
+    fs.rmSync(join(p.root, 'incidents'), { recursive: true });
+    const acquired = acquire(p, 'api', a, 15);
+    expect(acquired.ok).toBe(true);
+    if (acquired.ok) expect(acquired.lock).not.toHaveProperty('task');
+  });
+
+  it('fails closed on recovery guards, unknown retained scopes, and malformed holder JSON', () => {
+    const p = fixture();
+    fs.mkdirSync(join(p.root, '.recovery'));
+    expect(acquire(p, 'api', a, 15)).toMatchObject({ ok: false, reason: 'busy' });
+    fs.rmSync(join(p.root, '.recovery'), { recursive: true });
+
+    fs.mkdirSync(join(p.root, 'locks/retired-scope.lock'));
+    expect(() => acquire(p, 'api', a, 15)).toThrow(/outside registry/i);
+    fs.rmSync(join(p.root, 'locks/retired-scope.lock'), { recursive: true });
+
+    fs.mkdirSync(join(p.root, 'locks/api.lock'));
+    fs.writeFileSync(join(p.root, 'locks/api.lock/holder.json'), '{');
+    expect(inspect(p, 'api', 5).state).toBe('malformed');
+  });
+
   it('acquires batches in order and rolls back partial contention', () => {
     const p = fixture(); const other = acquire(p, 'tests', b, 15); expect(other.ok).toBe(true);
     expect(acquireMany(p, ['tests', 'api'], a, 15).ok).toBe(false);

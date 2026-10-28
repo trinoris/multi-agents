@@ -46,7 +46,7 @@ paths, and explicit offline marker recovery.
 | --- | --- | --- |
 | MA-SEC-01, 04 | Contained logical paths; ancestor/link/type checks; bounded no-follow file reads; preflighted atomic setup writes | SDK `security.test.ts`, `policy.test.ts`; CLI `setup.security.test.ts` |
 | MA-SEC-02, 12 | One mkdir guard for all mutations; generated lease nonce; live-lease checks; safe expired cleanup | SDK `security.test.ts`, `policy.test.ts`, `concurrency.integration.test.ts`; CLI journey |
-| MA-SEC-03, 10 | Unique verifier arenas; owned cleanup; bounded yielding workers; timeout/abort and readiness results | CLI `verify.test.ts`, `cli.integration.test.ts` |
+| MA-SEC-03, 10 | Unique verifier arenas; owned cleanup; bounded worker-thread barrier; timeout/abort cleanup; bounded trial/concurrency input | CLI `verify.test.ts`, `cli.integration.test.ts`, packed artifact check |
 | MA-SEC-05, 13 | Strict recipient/frontmatter validation; per-instance destination; collision preservation; claimant/digest receipts and interrupted-move retry | Core `security.test.ts`; SDK `security.test.ts`, `policy.test.ts` |
 | MA-SEC-06 | Schema, duration, timestamp, configuration, version, file size/type and I/O validation; no adoption of a legacy record as authority | Core `security.test.ts`; SDK `security.test.ts`, `policy.test.ts` |
 | MA-SEC-07 | Read-only diagnostics and exact-ID stopped-actor recovery; no time/PID stealing | SDK `policy.test.ts`, real crash integration; CLI recovery journey |
@@ -74,7 +74,7 @@ requires Node.js 20+.
 Validation commands and retained results:
 
 - `pnpm run build`: passed for all three packages on 2026-10-26.
-- `pnpm run test --force`: **156 tests passed** across 15 files (core 37, SDK 50, CLI 69), with no cached tasks on 2026-10-28. Includes real process claim/acquire/takeover races, killed-process recovery, verifier success/failure/abort cleanup, dangling links, hard links, special files, additive/idempotent Codex, Kiro, Cursor, and Claude setup instructions, default Cursor handoff routing, template parsing, CLI journeys, release-failure log retention, and offline installation/inspection of all three tarballs. This is the current local Linux result; fresh CI is still required for cross-platform verification of these edits.
+- `pnpm run test:coverage`: passed on 2026-10-28 with 185 tests across 18 files and Core 89.81%, SDK 80.73%, and CLI command modules 81.73% V8 branch coverage. CI enforces an 80% minimum for each package; the CLI bootstrap is excluded because the built entry point is exercised by CLI integration tests.
 - TypeScript `--noEmit` checks for core, SDK, and CLI: passed, including test sources and declarations for release helpers.
 - `node scripts/release-inputs.mjs`: all three package manifests, reviewed workspace policy, and parsed lockfile passed.
 - Refreshed npm audit: zero informational, low, moderate, high, or critical advisories.
@@ -303,9 +303,15 @@ References: [GHSA-hcf7-66rw-9f5r](https://github.com/advisories/GHSA-hcf7-66rw-9
 
 ### MA-SEC-10 / P3 — Bound verifier work and remove busy polling
 
+**Current status: closed (2026-10-28).** The verifier rejects oversized trial/concurrency
+requests, uses a shared atomic barrier across Node worker threads, and terminates started
+workers on timeout, abort, or partial startup failure. It reads filesystem type through
+Node's `fs.statfsSync` when available and no longer imports `child_process`. The packed
+CLI regression checks the published bundles for that import and requires the worker module.
+
 **Affected:** CLI `verify` in [`packages/cli/src/commands/verify.ts`](../packages/cli/src/commands/verify.ts).
 
-The verifier accepts user-controlled trial and concurrency values with no practical upper bounds. It starts one child process per concurrency slot and performs a synchronous tight loop while waiting for a barrier. Large values can consume CPU, memory, and process-table capacity; a runaway verifier can interfere with the user's work.
+The historical implementation accepted user-controlled trial and concurrency values with no practical upper bounds. It started one child process per concurrency slot and performed a synchronous tight loop while waiting for a barrier. Large values could consume CPU, memory, and process-table capacity; a runaway verifier could interfere with the user's work.
 
 **Required hardening:**
 

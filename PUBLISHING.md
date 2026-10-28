@@ -78,8 +78,10 @@ recorded outcome; do not infer that every artifact was published from its presen
 
 ## Protocol 3 migration and versions
 
-All three packages are prepared as `0.2.0` because lease generations, strict records,
-recipient validation, per-instance active destinations, and the `.trinoris/` state-root
-change the consumer contract. They have not been published by implementing these changes.
-Stop all earlier clients before migrating to protocol 3. See the CLI user guide and
+The protocol 3 packages `@trinoris/agent-core`, `@trinoris/agent-sdk`, and
+`@trinoris/agent-cli` have `0.2.0` releases on npm. The current CLI update adds
+`doctor --runtime` and a critical-advisory startup gate, so its next release is `0.3.0`;
+core and SDK remain at `0.2.0`. The release runner skips the already-published exact
+core/SDK versions and publishes only the CLI version after every gate passes. Stop all
+earlier protocol 2 clients before migrating to protocol 3. See the CLI user guide and
 `specs/07-security-hardening.md` for migration rules, boundaries, and test coverage.

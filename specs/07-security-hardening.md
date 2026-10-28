@@ -46,9 +46,10 @@ markers. Regression coverage is in CLI setup, verification, and installed CLI jo
 ## Protocol 3 implementation status
 
 All 17 original findings have implementation controls and automated regressions in the
-current code. This does not close every platform-specific matrix subcase. Consumer packages
-are prepared as `0.2.0`; publication remains blocked until the clean-commit and current
-cross-platform CI gates below pass. The implementation uses a package-owned versioned
+current code. This does not close every platform-specific matrix subcase. Core and SDK
+`0.2.0` and CLI `0.2.0` are published on npm. The runtime advisory gate is prepared as CLI
+`0.3.0`; publication remains blocked until the clean-commit and current cross-platform CI
+gates below pass. The implementation uses a package-owned versioned
 contract, a shared mutation guard, generation-aware leases, strict bounded records and
 paths, and explicit offline marker recovery.
 
@@ -104,7 +105,7 @@ Validation commands and retained results:
 - TypeScript `--noEmit` checks for core, SDK, and CLI: passed, including test sources and declarations for release helpers.
 - `node scripts/release-inputs.mjs`: all three package manifests, reviewed workspace policy, and parsed lockfile passed.
 - Refreshed npm audit: zero informational, low, moderate, high, or critical advisories.
-- `bash scripts/release.sh --dry-run`: passed on clean commit `e06f89d` with `published: []`, three inspected 0.2.0 tarballs, dependency audit, uncached tests, and an offline installed-consumer journey on the host Node.js 24.22.1. Evidence is in `.release-artifacts/trinoris-release-SxYEY4/`. This is not a publishable release artifact; repeat the dry-run on the Node 22+ support-floor commit before release.
+- `bash scripts/release.sh --dry-run`: passed on clean commit `e06f89d` with `published: []`, three inspected 0.2.0 tarballs, dependency audit, uncached tests, and an offline installed-consumer journey on the host Node.js 24.22.1. Evidence is in `.release-artifacts/trinoris-release-SxYEY4/`. This is historical rehearsal evidence, not evidence for CLI 0.3.0; repeat the dry-run on its clean, CI-validated release commit before release.
 - `node scripts/consumer-runtime-smoke.mjs <node-18-binary> 18`: historical clean offline consumer pass on Node.js 18.20.8; EOL, not a current support claim.
 
 Remaining limits are explicit: this cooperative filesystem protocol cannot authenticate local writers or fence an editor paused after a check. Directory-entry power-loss durability is filesystem-dependent. Heartbeat/daemon support is unavailable rather than silently enabled. A recovery guard abandoned during offline recovery requires operator inspection with all actors stopped; it is never stolen automatically. The high/critical audit threshold remains the required policy; moderate/low failure is not silently imposed as a new publishing policy.

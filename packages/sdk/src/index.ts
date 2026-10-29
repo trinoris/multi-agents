@@ -13,3 +13,4 @@ export * from './lock.js';
 export * from './configuration.js';
 export * from './filesystem.js';
 export * from './guard.js';
+export * from './journal.js';

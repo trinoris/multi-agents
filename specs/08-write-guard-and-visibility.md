@@ -124,8 +124,14 @@ in this checkout recently", which is the question a resuming agent actually asks
 trinoris-agent log [--last N] [--scope S] [--instance ID] [--json]
 ```
 
-- One append-only record per lease acquire/renew/release/break, claim, publish, complete and
-  guard refusal, at `.trinoris/journal/YYYY-MM-DD.jsonl`.
+- One append-only record per lease acquire/renew/release/break, claim, publish and complete,
+  at `.trinoris/journal/YYYY-MM-DD.jsonl`. **Implemented by hooking `mutate()`**, the single
+  chokepoint every ordinary mutation already passes through, which is why no call site had to
+  be taught to log. `guard` is read-only and takes no marker, so its refusals are not journaled;
+  recording them would mean giving a read-only command a write path.
+- Scopes and task are threaded in as a `context` argument to `mutate()`. Without it the
+  records named an operation and an outcome but not *what* was taken, which is the field the
+  2026-10-29 question actually needed.
 - Each record: timestamp, instance, class, command, scopes, task, outcome. Bounded size,
   escaped output, no secrets — `.trinoris/` is Git-ignored, and the existing rule that
   nothing secret goes in tasks, reasons, notes or incidents extends here unchanged.
@@ -186,7 +192,12 @@ new filesystem assumptions, and it deserves its own verification pass.
 - **R2** `packages/sdk/src/policy.test.ts`: the batch task recorded on every lock and
   readable through `inspect`, plus the omitted and unbounded cases. Verified by removing the
   pass-through and confirming only that test fails.
-- **R3** not implemented.
+- **R3a** `packages/sdk/src/journal.test.ts`, 8 cases: the peer-scopes-and-task record that
+  reproduces the 2026-10-29 question; scope and instance filters; a refusal with its reason;
+  the never-throws contract when the journal path is unwritable; bounding and control-character
+  stripping; retention pruning; an unparseable line skipped rather than failing the read; and
+  the return cap.
+- **R3b** `~/.trinoris/` not implemented.
 
 - **R1 CLI contract** `packages/cli/src/commands/guard.integration.test.ts`, 4 cases: exit 5
   on an untracked path with the path named, exit 0 on tracked-clean, exit 5 when any one path

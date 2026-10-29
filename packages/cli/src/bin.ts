@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { classifyPaths, acquire, acquireMany, release, renew, inspect, isHolder, breakLock, claim, diagnose, recoverMarker, loadConfiguration, safePath, validateHandoffDraft, publishHandoff, publishedHandoffStatus, listHandoffs, readHandoff, completeHandoff, listIncidents } from '@trinoris/agent-sdk';
+import { readJournal, classifyPaths, acquire, acquireMany, release, renew, inspect, isHolder, breakLock, claim, diagnose, recoverMarker, loadConfiguration, safePath, validateHandoffDraft, publishHandoff, publishedHandoffStatus, listHandoffs, readHandoff, completeHandoff, listIncidents } from '@trinoris/agent-sdk';
 import { generateInstanceId, terminalText, identifier } from '@trinoris/agent-core';
 import { setup } from './commands/setup.js';
 import { verify } from './commands/verify.js';
@@ -12,7 +12,7 @@ import { getRuntimeSecurityReport, shouldBlockStartup } from './runtime-security
 const common = ['work-dir', 'agent-class', 'instance', 'json'];
 const identityCommands = new Set(['acquire', 'acquire-many', 'check', 'renew', 'release', 'break', 'claim', 'recover', 'handoff-publish', 'handoff-complete', 'handoff-wait']);
 const allowed: Record<string, string[]> = {
-  setup: ['force', 'agent-classes', 'scopes', 'lease-minutes', 'grace-minutes'], verify: ['trials', 'concurrency'], status: ['scope'], guard: ['paths', 'allow-untracked', 'allow-dirty'],
+  setup: ['force', 'agent-classes', 'scopes', 'lease-minutes', 'grace-minutes'], verify: ['trials', 'concurrency'], status: ['scope'], guard: ['paths', 'allow-untracked', 'allow-dirty'], log: ['last', 'scope', 'instance'],
   acquire: ['scope', 'task'], 'acquire-many': ['scopes', 'task'], check: ['scope', 'generation'],
   renew: ['scope', 'generation'], release: ['scope', 'generation'], break: ['scope', 'reason'],
   claim: ['note', 'from', 'to'], diagnose: [], recover: ['marker', 'operation', 'reason', 'confirm-stopped'],
@@ -30,6 +30,7 @@ verify [--trials N --concurrency N]   Check protocol readiness and actual mkdir 
 doctor --runtime                       Show Node runtime policy and known critical advisories
 status [--scope S]                   Inspect recorded leases
 guard --paths a,b [--allow-untracked p] Refuse a write Git could not recover (exit 5)
+log [--last N] [--scope S]           Read what has happened in this checkout
 acquire --scope S [--task T]         Acquire; retain the returned generation
 acquire-many --scopes api,tests [--task T]  All-or-none registry-ordered acquisition
 check --scope S --generation G       Check the active instance and lease generation
@@ -76,7 +77,7 @@ const commandNames: Record<string, string> = {
   'incidents-list': 'incidents list',
 };
 const optionValues: Record<string, string> = {
-  'work-dir': 'DIR', 'agent-class': 'CLASS', instance: 'ID', scope: 'SCOPE', task: 'TEXT', scopes: 'CSV', paths: 'CSV', 'allow-untracked': 'CSV', 'allow-dirty': 'CSV',
+  'work-dir': 'DIR', 'agent-class': 'CLASS', instance: 'ID', scope: 'SCOPE', task: 'TEXT', scopes: 'CSV', paths: 'CSV', 'allow-untracked': 'CSV', 'allow-dirty': 'CSV', last: 'N',
   generation: 'ID', reason: 'TEXT', note: 'FILE', from: 'INBOX', to: 'ACTIVE_DIR', marker: 'PATH',
   operation: 'ID', trials: 'N', concurrency: 'N', location: 'LOCATION', outcome: 'TEXT', until: 'STAGE',
   'timeout-seconds': 'N', 'interval-seconds': 'N',
@@ -282,6 +283,19 @@ async function main() {
       ? `${entry.timestamp} · ${entry.stage} · ${entry.scope ?? 'global'} · ${entry.action ?? 'operation'}${entry.reason ? ` · ${entry.reason}` : ''}`
       : `${entry.filename} · malformed record`).join('\n') : 'No incident records.';
     output(entries, readable); return;
+  }
+  if (command === 'log') {
+    // R3a of specs/08. Read-only; most recent first.
+    const records = readJournal(paths.root, {
+      last: opts.last ? Number(required('last')) : undefined,
+      scope: opts.scope ? required('scope') : undefined,
+      instance: opts.instance ? required('instance') : undefined,
+    });
+    // One console.log per record: terminalText escapes control characters by design, so a
+    // joined multi-line string would render as literal \u000a.
+    if (opts.json) console.log(JSON.stringify(records));
+    else for (const r of records) console.log(terminalText(`${r.at}  ${r.agent_instance}  ${r.operation}  ${r.outcome}  [${(r.scopes ?? []).join(',')}]${r.task ? `  ${r.task}` : ''}${r.detail ? `  (${r.detail})` : ''}`));
+    return;
   }
   if (command === 'guard') {
     // R1 of specs/08. Read-only: acquires nothing and takes no mutation marker, so it is

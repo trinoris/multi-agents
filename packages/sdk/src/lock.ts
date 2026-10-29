@@ -8,6 +8,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { type AgentIdentity, type Handoff, type Lock, ValidationError, boundedText, calculateExpiration, duration, identifier, isInGracePeriod, isLockExpired, parseHandoff, validateLock, object, validDate } from '@trinoris/agent-core';
 import { directory, jsonFile, readText, removeOwnedDirectory, safePath, writeAtomic } from './filesystem.js';
 import { loadConfiguration } from './configuration.js';
+import { appendJournal, journalRecord } from './journal.js';
 
 export interface LockPaths { root: string; clock?: () => Date }
 export type Lease = Lock & { schema_version: 2; generation: string };
@@ -63,11 +64,27 @@ function cleanMarker(p: LockPaths, path: string, id: string) {
   if (metadata(p, path)?.operation_id !== id) throw new Error('Marker generation changed; refusing cleanup');
   removeOwnedDirectory(p.root, path);
 }
-function mutate<T>(p: LockPaths, owner: AgentIdentity, operation: string, body: (id: string) => T): T | Failure {
+function mutate<T>(p: LockPaths, owner: AgentIdentity, operation: string, body: (id: string) => T, context: { scopes?: string[]; task?: string } = {}): T | Failure {
   identity(owner); if (safePath(p.root, join(p.root, '.recovery'))) return fail('busy');
   const path = join(p.root, '.mutation'); const id = randomUUID();
   if (!marker(p, path, { schema_version: 2, operation_id: id, operation, owner, created_at: now(p).toISOString() })) return fail('busy');
-  try { return body(id); } finally { cleanMarker(p, path, id); }
+  // R3a of specs/08: every ordinary mutation passes through here, so this is the one place a
+  // journal entry belongs. appendJournal never throws -- a failed note must not fail the
+  // operation it describes.
+  try {
+    const result = body(id);
+    const refused = Boolean(result && typeof result === 'object' && (result as { ok?: boolean }).ok === false);
+    appendJournal(p.root, journalRecord(owner, operation, now(p), {
+      operation_id: id,
+      ...context,
+      outcome: refused ? 'refused' : 'ok',
+      ...(refused ? { detail: (result as unknown as Failure).reason } : {}),
+    }));
+    return result;
+  } catch (e) {
+    appendJournal(p.root, journalRecord(owner, operation, now(p), { operation_id: id, ...context, outcome: 'error', detail: (e as Error).message }));
+    throw e;
+  } finally { cleanMarker(p, path, id); }
 }
 function heldNames(p: LockPaths): string[] {
   directory(p.root, join(p.root, 'locks'));
@@ -149,7 +166,7 @@ export function acquire(p: LockPaths, scope: string, owner: AgentIdentity, lease
     const blocked = compatible(p, scope, owner); if (blocked) return blocked;
     const incidents = recentIncidents(p, scope);
     return { ok: true as const, lock: publishLease(p, scope, owner, leaseMinutes, task), recent_incidents: incidents };
-  });
+  }, { scopes: [scope], task });
 }
 export function isHolder(p: LockPaths, scope: string, instance: string, generation?: string, at = now(p)): boolean {
   policy(p, scope); identifier(instance, 'instance');
@@ -167,7 +184,7 @@ export function renew(p: LockPaths, scope: string, instance: string, leaseMinute
     const renewed = { ...lock, renewed_at: at.toISOString(), expires_at: calculateExpiration(leaseMinutes, at).toISOString() } as Lease;
     validateLock(renewed, scope);
     jsonFile(p.root, holderFile(p, scope), renewed); return { ok: true as const, lock: renewed };
-  });
+  }, { scopes: [scope] });
 }
 export function release(p: LockPaths, scope: string, instance: string, generation?: string) {
   policy(p, scope); identifier(instance, 'instance');
@@ -177,7 +194,7 @@ export function release(p: LockPaths, scope: string, instance: string, generatio
     const lock = readHolder(p, scope);
     if (lock?.agent_instance !== instance || lock.generation !== generation) return fail('not-holder');
     removeOwnedDirectory(p.root, lockDir(p, scope)); return { ok: true as const };
-  });
+  }, { scopes: [scope] });
 }
 function record(p: LockPaths, id: string, stage: string, value: Record<string, unknown>) {
   const path = join(p.root, 'incidents', `${id}.${stage}.json`);
@@ -206,7 +223,7 @@ export function breakLock(p: LockPaths, scope: string, owner: AgentIdentity, lea
       }
       throw Object.assign(error as Error, { operation_id: id, state_committed: committed });
     } finally { cleanMarker(p, token, id); }
-  });
+  }, { scopes: [scope] });
 }
 export function claim(p: LockPaths, noteFilename: string, fromDir: string, toDir: string, owner?: AgentIdentity) {
   identifier(noteFilename, 'note filename', 160); if (!noteFilename.endsWith('.md')) throw new ValidationError('Expected Markdown handoff filename');
@@ -553,7 +570,7 @@ export function acquireMany(p: LockPaths, scopes: string[], owner: AgentIdentity
       }
       return { ok: true as const, locks };
     } catch (e) { for (const held of locks) removeOwnedDirectory(p.root, lockDir(p, held.scope)); throw e; }
-  });
+  }, { scopes: ordered, task });
 }
 export function diagnose(p: LockPaths) {
   const locations = ['.mutation', '.recovery'];

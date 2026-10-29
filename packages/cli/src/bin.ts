@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { acquire, acquireMany, release, renew, inspect, isHolder, breakLock, claim, diagnose, recoverMarker, loadConfiguration, safePath, validateHandoffDraft, publishHandoff, publishedHandoffStatus, listHandoffs, readHandoff, completeHandoff, listIncidents } from '@trinoris/agent-sdk';
+import { classifyPaths, acquire, acquireMany, release, renew, inspect, isHolder, breakLock, claim, diagnose, recoverMarker, loadConfiguration, safePath, validateHandoffDraft, publishHandoff, publishedHandoffStatus, listHandoffs, readHandoff, completeHandoff, listIncidents } from '@trinoris/agent-sdk';
 import { generateInstanceId, terminalText, identifier } from '@trinoris/agent-core';
 import { setup } from './commands/setup.js';
 import { verify } from './commands/verify.js';
@@ -12,7 +12,7 @@ import { getRuntimeSecurityReport, shouldBlockStartup } from './runtime-security
 const common = ['work-dir', 'agent-class', 'instance', 'json'];
 const identityCommands = new Set(['acquire', 'acquire-many', 'check', 'renew', 'release', 'break', 'claim', 'recover', 'handoff-publish', 'handoff-complete', 'handoff-wait']);
 const allowed: Record<string, string[]> = {
-  setup: ['force', 'agent-classes', 'scopes', 'lease-minutes', 'grace-minutes'], verify: ['trials', 'concurrency'], status: ['scope'],
+  setup: ['force', 'agent-classes', 'scopes', 'lease-minutes', 'grace-minutes'], verify: ['trials', 'concurrency'], status: ['scope'], guard: ['paths', 'allow-untracked', 'allow-dirty'],
   acquire: ['scope', 'task'], 'acquire-many': ['scopes', 'task'], check: ['scope', 'generation'],
   renew: ['scope', 'generation'], release: ['scope', 'generation'], break: ['scope', 'reason'],
   claim: ['note', 'from', 'to'], diagnose: [], recover: ['marker', 'operation', 'reason', 'confirm-stopped'],
@@ -29,6 +29,7 @@ setup [--force] [--lease-minutes N --grace-minutes N]
 verify [--trials N --concurrency N]   Check protocol readiness and actual mkdir behavior
 doctor --runtime                       Show Node runtime policy and known critical advisories
 status [--scope S]                   Inspect recorded leases
+guard --paths a,b [--allow-untracked p] Refuse a write Git could not recover (exit 5)
 acquire --scope S [--task T]         Acquire; retain the returned generation
 acquire-many --scopes api,tests [--task T]  All-or-none registry-ordered acquisition
 check --scope S --generation G       Check the active instance and lease generation
@@ -75,7 +76,7 @@ const commandNames: Record<string, string> = {
   'incidents-list': 'incidents list',
 };
 const optionValues: Record<string, string> = {
-  'work-dir': 'DIR', 'agent-class': 'CLASS', instance: 'ID', scope: 'SCOPE', task: 'TEXT', scopes: 'CSV',
+  'work-dir': 'DIR', 'agent-class': 'CLASS', instance: 'ID', scope: 'SCOPE', task: 'TEXT', scopes: 'CSV', paths: 'CSV', 'allow-untracked': 'CSV', 'allow-dirty': 'CSV',
   generation: 'ID', reason: 'TEXT', note: 'FILE', from: 'INBOX', to: 'ACTIVE_DIR', marker: 'PATH',
   operation: 'ID', trials: 'N', concurrency: 'N', location: 'LOCATION', outcome: 'TEXT', until: 'STAGE',
   'timeout-seconds': 'N', 'interval-seconds': 'N',
@@ -281,6 +282,18 @@ async function main() {
       ? `${entry.timestamp} · ${entry.stage} · ${entry.scope ?? 'global'} · ${entry.action ?? 'operation'}${entry.reason ? ` · ${entry.reason}` : ''}`
       : `${entry.filename} · malformed record`).join('\n') : 'No incident records.';
     output(entries, readable); return;
+  }
+  if (command === 'guard') {
+    // R1 of specs/08. Read-only: acquires nothing and takes no mutation marker, so it is
+    // safe to call concurrently with any other command.
+    const list = (name: string) => (opts[name] ? required(name).split(',').map(v => v.trim()).filter(Boolean) : []);
+    const report = classifyPaths(required('paths').split(',').map(v => v.trim()).filter(Boolean), {
+      cwd: workDir, allowUntracked: list('allow-untracked'), allowDirty: list('allow-dirty'),
+    });
+    output(report, report.ok
+      ? 'No peer work is visibly at risk; this is advisory, not proof the write is safe'
+      : report.paths.filter(c => !c.allowed).map(c => `${c.path}: ${c.verdict} — ${c.reason}`).join('\n'));
+    if (!report.ok) process.exitCode = 5; return;
   }
   const config = loadConfiguration(paths, true);
   const minutes = config.scopes.lease_duration_minutes; const grace = config.scopes.grace_period_minutes;

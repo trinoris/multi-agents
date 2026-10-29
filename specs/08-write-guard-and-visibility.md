@@ -48,12 +48,19 @@ For each path, classify against `git status --porcelain` and the live lease tabl
 
 | Classification | Meaning | Result |
 | --- | --- | --- |
-| tracked, clean | committed; a write is reviewable by diff | allow |
-| tracked, dirty, scope held by caller | the caller's own in-flight work | allow |
-| tracked, dirty, scope held by a peer | a peer is editing under its lease | refuse |
-| tracked, dirty, no lease held | unattributable local modification | refuse |
-| untracked | nobody's diff can recover it | refuse |
-| ignored (`.gitignore`) | build output, coordination state | allow |
+| `clean` — tracked, unmodified | committed; a write is recoverable by diff | allow |
+| `dirty` — tracked, modified | the working copy is unattributable; a write overwrites it | refuse |
+| `untracked` | nothing committed to diff or restore if the write is wrong | refuse |
+| `ignored` (`.gitignore`) | build output, coordination state | allow |
+| `missing` | does not exist; the write creates it | allow |
+
+**Lease attribution was specified and deliberately dropped during implementation.** An
+earlier draft of this table distinguished "dirty, held by caller" from "dirty, held by a
+peer". The engine cannot make that distinction: mapping a path to a scope is a human
+responsibility under [01](01-coordination-protocol.md), so no lease record says which files
+it covers. Rather than infer ownership it cannot know, `guard` reports what Git can prove
+and refuses what Git cannot recover. A caller who owns a modified or new file says so with
+`--allow-dirty` / `--allow-untracked`, per path.
 
 Exit `0` when every path is allowed, `5` when any is refused. `5` is unused by the current
 CLI ([06](06-cli-interface.md) uses 0/1/3/4/130) and must not collide with it. Output names
@@ -71,8 +78,11 @@ every refused path and its classification; `--json` returns the same as structur
 - **Untracked is refused, not warned.** An untracked file is the one case where a mistaken
   write is unrecoverable: there is no committed copy to diff or restore. The incident above
   was three untracked files.
-- **`--allow-untracked <path>`** overrides a specific path, so a caller that genuinely owns
-  new files can proceed. The override is per-path and never global.
+- **`--allow-untracked <path>` / `--allow-dirty <path>`** override a specific path, so a
+  caller that genuinely owns new or modified files can proceed. The override is per-path and
+  never global, so a bulk operation cannot silence the check wholesale.
+- **Outside a work tree, nothing is allowed.** If Git reports no repository root it can
+  prove nothing about recoverability, so every path is refused rather than waved through.
 
 ### Companion requirement: `--dry-run` on bulk operations
 
@@ -169,7 +179,14 @@ new filesystem assumptions, and it deserves its own verification pass.
 
 ## Implemented tests
 
-To be filled in as each requirement lands, following
-[05](05-verification.md) and [07](07-security-hardening.md). Each requirement needs at
-minimum: a refusal proven by constructing the condition, and a false-positive check proving
-the guard allows ordinary committed work.
+- **R1** `packages/sdk/src/guard.test.ts`, 8 cases: the untracked refusal that reproduces
+  the incident; the false-positive check that ordinary committed work passes; dirty refused;
+  ignored and missing allowed; a per-path override that does not silence its neighbours; a
+  path outside the repository; the non-work-tree contract; and the path-count bound.
+- **R2** `packages/sdk/src/policy.test.ts`: the batch task recorded on every lock and
+  readable through `inspect`, plus the omitted and unbounded cases. Verified by removing the
+  pass-through and confirming only that test fails.
+- **R3** not implemented.
+
+Still owed, per [05](05-verification.md): a CLI-level test asserting `guard` exits 5, since
+the current coverage is at SDK level and the exit code is wired in `bin.ts`.

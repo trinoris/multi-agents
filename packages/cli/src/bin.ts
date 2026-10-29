@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { readJournal, classifyPaths, acquire, acquireMany, release, renew, inspect, isHolder, breakLock, claim, diagnose, recoverMarker, loadConfiguration, safePath, validateHandoffDraft, publishHandoff, publishedHandoffStatus, listHandoffs, readHandoff, completeHandoff, listIncidents } from '@trinoris/agent-sdk';
+import { readGlobalRegistry, readJournal, classifyPaths, acquire, acquireMany, release, renew, inspect, isHolder, breakLock, claim, diagnose, recoverMarker, loadConfiguration, safePath, validateHandoffDraft, publishHandoff, publishedHandoffStatus, listHandoffs, readHandoff, completeHandoff, listIncidents } from '@trinoris/agent-sdk';
 import { generateInstanceId, terminalText, identifier } from '@trinoris/agent-core';
 import { setup } from './commands/setup.js';
 import { verify } from './commands/verify.js';
@@ -12,7 +12,7 @@ import { getRuntimeSecurityReport, shouldBlockStartup } from './runtime-security
 const common = ['work-dir', 'agent-class', 'instance', 'json'];
 const identityCommands = new Set(['acquire', 'acquire-many', 'check', 'renew', 'release', 'break', 'claim', 'recover', 'handoff-publish', 'handoff-complete', 'handoff-wait']);
 const allowed: Record<string, string[]> = {
-  setup: ['force', 'agent-classes', 'scopes', 'lease-minutes', 'grace-minutes'], verify: ['trials', 'concurrency'], status: ['scope'], guard: ['paths', 'allow-untracked', 'allow-dirty'], log: ['last', 'scope', 'instance'],
+  setup: ['force', 'agent-classes', 'scopes', 'lease-minutes', 'grace-minutes'], verify: ['trials', 'concurrency'], status: ['scope', 'all-repos'], guard: ['paths', 'allow-untracked', 'allow-dirty'], log: ['last', 'scope', 'instance'],
   acquire: ['scope', 'task'], 'acquire-many': ['scopes', 'task'], check: ['scope', 'generation'],
   renew: ['scope', 'generation'], release: ['scope', 'generation'], break: ['scope', 'reason'],
   claim: ['note', 'from', 'to'], diagnose: [], recover: ['marker', 'operation', 'reason', 'confirm-stopped'],
@@ -21,14 +21,14 @@ const allowed: Record<string, string[]> = {
   'handoff-wait': ['note', 'until', 'timeout-seconds', 'interval-seconds'],
   'incidents-list': ['scope'],
 };
-const booleans = new Set(['json', 'force', 'confirm-stopped']);
+const booleans = new Set(['json', 'force', 'confirm-stopped', 'all-repos']);
 const usage = `trinoris-agent — cooperative local coordination, protocol 3
 
 setup [--force] [--lease-minutes N --grace-minutes N]
                                     Install the protocol and set bounded lease policy
 verify [--trials N --concurrency N]   Check protocol readiness and actual mkdir behavior
 doctor --runtime                       Show Node runtime policy and known critical advisories
-status [--scope S]                   Inspect recorded leases
+status [--scope S] [--all-repos]     Inspect recorded leases; --all-repos spans this machine
 guard --paths a,b [--allow-untracked p] Refuse a write Git could not recover (exit 5)
 log [--last N] [--scope S]           Read what has happened in this checkout
 acquire --scope S [--task T]         Acquire; retain the returned generation
@@ -311,6 +311,17 @@ async function main() {
   }
   const config = loadConfiguration(paths, true);
   const minutes = config.scopes.lease_duration_minutes; const grace = config.scopes.grace_period_minutes;
+  if (command === 'status' && opts['all-repos']) {
+    // R3b of specs/08. Advisory: the per-repo .trinoris/ stays authoritative, and this never
+    // gates an acquire. A stale entry is expected -- repositories get deleted and moved.
+    const view = readGlobalRegistry();
+    if (opts.json) console.log(JSON.stringify(view));
+    else {
+      console.log(terminalText(`registry: ${view.root}${view.unreadable ? `  (${view.unreadable} unreadable)` : ''}`));
+      for (const e of view.entries) console.log(terminalText(`${e.updated_at}  ${e.agent_instance}  [${e.scopes.join(',')}]  ${e.repository}${e.task ? `  ${e.task}` : ''}`));
+    }
+    return;
+  }
   if (command === 'status') {
     const dir = join(paths.root, 'locks'); if (!safePath(paths.root, dir)?.isDirectory()) throw new Error('Missing locks directory');
     const scopes = opts.scope ? [required('scope')] : fs.readdirSync(dir).filter(n => n.endsWith('.lock')).map(n => n.slice(0, -5));

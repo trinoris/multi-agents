@@ -3,12 +3,13 @@
  * Protocol 3 serializes every mutation with mkdir. Guards are never reclaimed by age.
  */
 import fs from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { type AgentIdentity, type Handoff, type Lock, ValidationError, boundedText, calculateExpiration, duration, identifier, isInGracePeriod, isLockExpired, parseHandoff, validateLock, object, validDate } from '@trinoris/agent-core';
 import { directory, jsonFile, readText, removeOwnedDirectory, safePath, writeAtomic } from './filesystem.js';
 import { loadConfiguration } from './configuration.js';
 import { appendJournal, journalRecord } from './journal.js';
+import { publishGlobalEntry } from './global-registry.js';
 
 export interface LockPaths { root: string; clock?: () => Date }
 export type Lease = Lock & { schema_version: 2; generation: string };
@@ -80,11 +81,39 @@ function mutate<T>(p: LockPaths, owner: AgentIdentity, operation: string, body: 
       outcome: refused ? 'refused' : 'ok',
       ...(refused ? { detail: (result as unknown as Failure).reason } : {}),
     }));
+    // R3b of specs/08: republish this instance's holdings for the machine-global view.
+    // Advisory and best-effort; it must never affect the lease it describes.
+    if (!refused) republishGlobal(p, owner, context.task);
     return result;
   } catch (e) {
     appendJournal(p.root, journalRecord(owner, operation, now(p), { operation_id: id, ...context, outcome: 'error', detail: (e as Error).message }));
     throw e;
   } finally { cleanMarker(p, path, id); }
+}
+/**
+ * R3b: reflect this instance's current holdings into the machine-global registry. Reads the
+ * authoritative per-repo state rather than tracking it separately, so the global view cannot
+ * drift into claiming a lease that `locks/` does not show.
+ */
+function republishGlobal(p: LockPaths, owner: AgentIdentity, task?: string): void {
+  try {
+    const mine: string[] = [];
+    let latestTask = task;
+    for (const scope of heldNames(p)) {
+      const state = inspectUnderGuard(p, scope, 0, now(p));
+      if (state.state !== 'held' || state.lock.agent_instance !== owner.agent_instance) continue;
+      mine.push(scope);
+      latestTask = latestTask ?? (state.lock as { task?: string }).task;
+    }
+    publishGlobalEntry({
+      repository: dirname(p.root),
+      agent_class: owner.agent_class,
+      agent_instance: owner.agent_instance,
+      scopes: mine.sort(),
+      ...(latestTask ? { task: latestTask } : {}),
+      updated_at: now(p).toISOString(),
+    });
+  } catch { /* advisory */ }
 }
 function heldNames(p: LockPaths): string[] {
   directory(p.root, join(p.root, 'locks'));

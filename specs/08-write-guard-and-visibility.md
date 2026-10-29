@@ -161,8 +161,10 @@ trinoris-agent status --all-repos
   unrelated repositories.
 - A stale or missing global entry is not an error. Repos may be deleted, moved, or operated
   by an agent that predates this feature.
-- **Filesystem caution.** `~` may sit on a different filesystem from the checkout, and
-  9p is a supported mount here. The same atomic-publish discipline applies — unique
+- **Filesystem caution, confirmed.** On the reference machine `$HOME` is ext2/ext3 while the
+  checkouts are v9fs — genuinely different filesystems, so `verify`'s readiness for
+  `.trinoris/` says nothing about `~/.trinoris/`. `TRINORIS_GLOBAL_DIR` overrides the location,
+  which is also how the tests avoid touching a real home directory. The same atomic-publish discipline applies — unique
   temporary file plus rename, links rejected — and `verify` must probe the global path
   separately, because readiness at `.trinoris/` implies nothing about `~/.trinoris/`.
 - No network coordination is introduced. The boundary in
@@ -197,7 +199,11 @@ new filesystem assumptions, and it deserves its own verification pass.
   the never-throws contract when the journal path is unwritable; bounding and control-character
   stripping; retention pruning; an unparseable line skipped rather than failing the read; and
   the return cap.
-- **R3b** `~/.trinoris/` not implemented.
+- **R3b** `packages/sdk/src/global-registry.test.ts`, 8 cases: an instance in one repository
+  visible to an instance in another, which is the blindness it removes; entry replacement
+  rather than accumulation; removal when nothing is held; explicit clearing; the never-throws
+  contract when the registry path is unwritable; a malformed entry counted rather than failing
+  the read; the empty view; and the scope bound.
 
 - **R1 CLI contract** `packages/cli/src/commands/guard.integration.test.ts`, 4 cases: exit 5
   on an untracked path with the path named, exit 0 on tracked-clean, exit 5 when any one path

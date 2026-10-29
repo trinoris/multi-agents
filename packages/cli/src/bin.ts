@@ -341,7 +341,17 @@ async function main() {
     case 'renew': result = renew(paths, required('scope'), instance, minutes, required('generation')); break;
     case 'release': result = release(paths, required('scope'), instance, required('generation')); break;
     case 'break': result = breakLock(paths, required('scope'), owner, minutes, grace, required('reason')); break;
-    case 'claim': result = claim(paths, required('note'), value('from', `handoff/for-${agentClass}`), value('to', `active/${instance}`), owner); break;
+    case 'claim': {
+      // The default inbox is this class's, but the protocol also defines handoff/for-any for
+      // an explicitly universal note, and the SDK's own claim accepts that source. Without
+      // this fallback a universal note is unreachable unless the caller already knows to pass
+      // --from handoff/for-any, which defeats the point of a convenience default.
+      const note = required('note');
+      const defaultFrom = safePath(paths.root, join(paths.root, 'handoff', `for-${agentClass}`, note))
+        ? `handoff/for-${agentClass}`
+        : 'handoff/for-any';
+      result = claim(paths, note, value('from', defaultFrom), value('to', `active/${instance}`), owner); break;
+    }
     case 'handoff-publish': result = publishHandoff(paths, required('note'), owner); break;
     case 'handoff-complete': result = completeHandoff(paths, required('note'), owner, required('outcome')); break;
     default: throw new Error('Unsupported command');

@@ -1,6 +1,6 @@
 /** Copyright 2026 TRINORIS — Licensed under the Apache License, Version 2.0. */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,5 +61,48 @@ describe('guard CLI contract', () => {
     writeFileSync(join(root, 'mine.js'), 'my new file\n');
     expect(guard(root, 'mine.js').code).toBe(5);
     expect(guard(root, 'mine.js', ['--allow-untracked', 'mine.js']).code).toBe(0);
+  });
+});
+
+// Reviewing 1c2a184 (handoff parser aligned with protocol 3) surfaced this: the protocol
+// defines handoff/for-any for an explicitly universal note, and the SDK's claim accepts that
+// source, but the CLI defaulted --from to the class inbox only. A universal note was
+// unreachable unless the caller already knew to pass --from handoff/for-any.
+describe('claim reaches a universal note without --from', () => {
+  const note = (to: string) => [
+    '---', 'from_class: codex-gpt-6', 'from_instance: peer', `to_class: ${to}`, 'to_instance: any',
+    'scopes: [specs]', 'locks_released: true', '---', '',
+    '# Context Handoff', '', 'Updated: 2026-10-29 18:00 UTC', 'Task: probe', 'Status: ready-for-review',
+    'Branch: main', 'Base commit: abc1234', '',
+    '## Goal', 'x', '## User Constraints', '- x', '## Current State', '- x',
+    '## Changes', '| Path | Change | Reason |', '| --- | --- | --- |', '| `x` | x | x |',
+    '## Decisions', '- x', '## Verification', '| Check | Result | Scope / limitations |',
+    '| --- | --- | --- |', '| `x` | PASS | x |', '## Failed Attempts', '- x',
+    '## Blockers and Unknowns', '- Nothing.', '## Next Actions', '1. x',
+    '## Resume Instructions', '1. x', '## References', '- x', '',
+  ].join('\n');
+
+  function seeded(to: string) {
+    const root = repo();
+    spawnSync(process.execPath, [bin, 'setup', '--work-dir', root, '--json'], { encoding: 'utf8', timeout: 20000 });
+    mkdirSync(join(root, '.trinoris/handoff/drafts'), { recursive: true });
+    writeFileSync(join(root, '.trinoris/handoff/drafts/n.md'), note(to));
+    spawnSync(process.execPath, [bin, 'handoff', 'publish', '--work-dir', root, '--note', 'n.md', '--agent-class', 'codex-gpt-6', '--instance', 'peer', '--json'], { encoding: 'utf8', timeout: 20000 });
+    return root;
+  }
+  const claim = (root: string) => spawnSync(process.execPath, [bin, 'claim', '--work-dir', root, '--note', 'n.md', '--agent-class', 'claude-opus-5', '--instance', 'reviewer', '--json'], { encoding: 'utf8', timeout: 20000 });
+
+  it('claims a to_class: any note published to for-any', () => {
+    const root = seeded('any');
+    const r = claim(root);
+    expect(JSON.parse(r.stdout).ok).toBe(true);
+    expect(existsSync(join(root, '.trinoris/active/reviewer/n.md'))).toBe(true);
+  });
+
+  it('still prefers this class inbox when the note is addressed to it', () => {
+    const root = seeded('claude-opus-5');
+    const r = claim(root);
+    expect(JSON.parse(r.stdout).ok).toBe(true);
+    expect(existsSync(join(root, '.trinoris/active/reviewer/n.md'))).toBe(true);
   });
 });

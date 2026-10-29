@@ -535,9 +535,10 @@ function ensureArchiveIndex(p: LockPaths, receiptId: string, receipt: Record<str
   const line = `| ${cell(receipt.completed_at)} | ${cell(receipt.source?.split('/').at(-1))} | ${cell(from)} | ${cell(to)} | ${cell(receipt.outcome)} | ${markerText}`;
   writeAtomic(p.root, path, `${current}${current.endsWith('\n') ? '' : '\n'}${line}\n`);
 }
-export function acquireMany(p: LockPaths, scopes: string[], owner: AgentIdentity, minutes: number) {
+export function acquireMany(p: LockPaths, scopes: string[], owner: AgentIdentity, minutes: number, task?: string) {
   if (!scopes.length || scopes.length > 64 || new Set(scopes).size !== scopes.length) throw new ValidationError('Invalid scope batch');
   const cfg = policy(p, scopes[0]); scopes.forEach(s => policy(p, s)); duration(minutes); identity(owner);
+  if (task !== undefined) boundedText(task, 'task');
   const ordered = [...scopes].sort((a, b) => cfg.scopes.registry.indexOf(a) - cfg.scopes.registry.indexOf(b));
   return mutate(p, owner, 'acquire-many', () => {
     const locks: Lease[] = [];
@@ -548,7 +549,7 @@ export function acquireMany(p: LockPaths, scopes: string[], owner: AgentIdentity
           for (const held of locks) removeOwnedDirectory(p.root, lockDir(p, held.scope));
           return blocked ?? fail('held');
         }
-        locks.push(publishLease(p, scope, owner, minutes));
+        locks.push(publishLease(p, scope, owner, minutes, task));
       }
       return { ok: true as const, locks };
     } catch (e) { for (const held of locks) removeOwnedDirectory(p.root, lockDir(p, held.scope)); throw e; }

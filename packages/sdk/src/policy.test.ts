@@ -57,6 +57,29 @@ describe('SG-03 scope and Git policy', () => {
     const batch = acquireMany(p, ['tests', 'api'], a, 15); expect(batch.ok).toBe(true);
     if (batch.ok) expect(batch.locks.map(l => l.scope)).toEqual(['api', 'tests']);
   });
+  // R2 of specs/08: acquire-many could not describe its work. A caller taking six scopes at
+  // once is exactly the one whose intent matters, and the CLI allow-list omitted --task, so
+  // a peer reading `status` saw scopes and expiry but never what was being done.
+  it('records the batch task on every lock, and bounds it like acquire does', () => {
+    const p = fixture();
+    const batch = acquireMany(p, ['tests', 'api'], a, 15, 'migrating app display fields');
+    expect(batch.ok).toBe(true);
+    if (batch.ok) {
+      expect(batch.locks.map(l => l.scope)).toEqual(['api', 'tests']);
+      for (const lock of batch.locks) expect(lock.task).toBe('migrating app display fields');
+      for (const lock of batch.locks) expect(inspect(p, lock.scope, 5).lock?.task).toBe('migrating app display fields');
+    }
+  });
+
+  it('omits task when none is given, and rejects an unbounded one', () => {
+    const p = fixture();
+    const silent = acquireMany(p, ['tests'], a, 15);
+    expect(silent.ok).toBe(true);
+    if (silent.ok) expect(silent.locks[0].task).toBeUndefined();
+    const q = fixture();
+    expect(() => acquireMany(q, ['tests'], a, 15, 'x'.repeat(100_000))).toThrow();
+  });
+
   it('blocks peer Git/edit acquisitions in both directions under one guard', () => {
     const p = fixture(); const held = acquire(p, 'api', a, 15); if (!held.ok) throw new Error('fixture');
     expect(acquire(p, 'git', b, 15)).toMatchObject({ ok: false, reason: 'scope-held' });

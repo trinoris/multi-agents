@@ -13,7 +13,7 @@ const common = ['work-dir', 'agent-class', 'instance', 'json'];
 const identityCommands = new Set(['acquire', 'acquire-many', 'check', 'renew', 'release', 'break', 'claim', 'recover', 'handoff-publish', 'handoff-complete', 'handoff-wait']);
 const allowed: Record<string, string[]> = {
   setup: ['force', 'agent-classes', 'scopes', 'lease-minutes', 'grace-minutes'], verify: ['trials', 'concurrency'], status: ['scope'],
-  acquire: ['scope', 'task'], 'acquire-many': ['scopes'], check: ['scope', 'generation'],
+  acquire: ['scope', 'task'], 'acquire-many': ['scopes', 'task'], check: ['scope', 'generation'],
   renew: ['scope', 'generation'], release: ['scope', 'generation'], break: ['scope', 'reason'],
   claim: ['note', 'from', 'to'], diagnose: [], recover: ['marker', 'operation', 'reason', 'confirm-stopped'],
   'handoff-validate': ['note'], 'handoff-publish': ['note'], 'handoff-list': [],
@@ -30,7 +30,7 @@ verify [--trials N --concurrency N]   Check protocol readiness and actual mkdir 
 doctor --runtime                       Show Node runtime policy and known critical advisories
 status [--scope S]                   Inspect recorded leases
 acquire --scope S [--task T]         Acquire; retain the returned generation
-acquire-many --scopes api,tests      All-or-none registry-ordered acquisition
+acquire-many --scopes api,tests [--task T]  All-or-none registry-ordered acquisition
 check --scope S --generation G       Check the active instance and lease generation
 renew --scope S --generation G       Renew a still-live generation
 release --scope S --generation G     Remove only the matching generation
@@ -299,7 +299,7 @@ async function main() {
   let result;
   switch (command) {
     case 'acquire': result = acquire(paths, required('scope'), owner, minutes, opts.task ? required('task') : undefined); break;
-    case 'acquire-many': result = acquireMany(paths, required('scopes').split(','), owner, minutes); break;
+    case 'acquire-many': result = acquireMany(paths, required('scopes').split(','), owner, minutes, opts.task ? required('task') : undefined); break;
     case 'renew': result = renew(paths, required('scope'), instance, minutes, required('generation')); break;
     case 'release': result = release(paths, required('scope'), instance, required('generation')); break;
     case 'break': result = breakLock(paths, required('scope'), owner, minutes, grace, required('reason')); break;

@@ -136,9 +136,10 @@ trinoris-agent log [--last N] [--scope S] [--instance ID] [--json]
   escaped output, no secrets — `.trinoris/` is Git-ignored, and the existing rule that
   nothing secret goes in tasks, reasons, notes or incidents extends here unchanged.
 - Rotation by day with a retention bound, so the journal cannot grow without limit.
-- Writes go through the existing mutation guard and atomic-publish discipline. A failed
-  journal append must never fail the operation it describes: coordination state is the
-  record, the journal is an aid.
+- Appends occur while the ordinary mutation guard is held and use no-follow, single-link
+  file checks. Reads are bounded and validate record shape. A failed journal append must
+  never fail the operation it describes: coordination state is the record, the journal is
+  an aid.
 
 In the incident, a journal would have shown the Codex instance taking all seven scopes at
 19:49 and releasing them at 20:04 — enough to infer an in-flight task before writing.
@@ -153,14 +154,19 @@ while one instance worked in `trinoris-templates`, a peer was active in
 trinoris-agent status --all-repos
 ```
 
-- A machine-local registry of `{ repo path → instance → class → scopes → task → last seen }`,
-  written at acquire/release and readable by any instance on the host.
+- A machine-local registry with one entry per `{ repo path, instance }`, carrying class,
+  scopes, task and last seen, written at acquire/release and readable by any instance on
+  the host. Concurrent agents in one checkout must remain separate entries; releasing one
+  instance must not erase another's entry.
 - **Advisory only, never a lock of record.** Per-repo `.trinoris/` remains authoritative for
   every decision. The global view answers "who else is working on this machine", nothing
   more. It must never gate an acquire, or it becomes a single point of failure across
   unrelated repositories.
 - A stale or missing global entry is not an error. Repos may be deleted, moved, or operated
   by an agent that predates this feature.
+- Readers validate required fields and timestamps, reject links and oversized records, and
+  skip malformed entries instead of failing the complete view. Registry publication and
+  removal are keyed by repository and instance.
 - **Filesystem caution, confirmed.** On the reference machine `$HOME` is ext2/ext3 while the
   checkouts are v9fs — genuinely different filesystems, so `verify`'s readiness for
   `.trinoris/` says nothing about `~/.trinoris/`. `TRINORIS_GLOBAL_DIR` overrides the location,

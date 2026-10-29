@@ -270,9 +270,18 @@ export function claim(p: LockPaths, noteFilename: string, fromDir: string, toDir
       const content = readText(p.root, source, 262144);
       const receiptText = readText(p.root, receipt);
       if (content === null) {
-        if (receiptText !== null) {
-          const prior = JSON.parse(receiptText); const saved = readText(p.root, dest, 262144);
-          if (saved !== null && prior.claimed_by === owner.agent_instance && prior.claimed_class === owner.agent_class && prior.digest === digest(saved) && prior.source === `${fromDir}/${noteFilename}`) return { ok: true as const, path: dest, digest: prior.digest as string, alreadyClaimed: true };
+        const saved = readText(p.root, dest, 262144);
+        if (saved !== null) {
+          const savedDigest = digest(saved);
+          for (const sourceDir of [`handoff/for-${owner.agent_class}`, 'handoff/for-any']) {
+            const receiptId = digest(`${sourceDir}/${noteFilename}`);
+            const priorText = sourceDir === fromDir ? receiptText : readText(p.root, join(p.root, destDir, `${receiptId}.receipt.json`));
+            if (priorText === null) continue;
+            try {
+              const prior = JSON.parse(priorText);
+              if (prior.claimed_by === owner.agent_instance && prior.claimed_class === owner.agent_class && prior.digest === savedDigest && prior.source === `${sourceDir}/${noteFilename}`) return { ok: true as const, path: dest, digest: savedDigest, alreadyClaimed: true };
+            } catch { /* malformed receipt is not proof of a prior claim */ }
+          }
         }
         return fail('missing');
       }

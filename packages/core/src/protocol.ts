@@ -121,6 +121,11 @@ a peer git lock blocks acquiring other scopes. SDK checks both under the same gu
 The actual Git command still requires cooperation. Do not branch, reset, rebase, change
 the index, or commit around the guard by invoking an uncoordinated command.
 
+Before bulk edits, use trinoris-agent guard --paths a,b to check whether Git can recover
+the target paths. Dirty and untracked paths are refused unless individually named with
+--allow-dirty or --allow-untracked. Git errors also refuse a path. A pass is advisory:
+it does not prove ownership or protect a tool paused before its write.
+
 ## Handoffs
 
 Author notes in handoff/for-<class>/, or handoff/for-any/ for an explicitly universal note.
@@ -160,6 +165,8 @@ receipt and return alreadyClaimed; altered content is not accepted as the prior 
 Claiming does not acquire editing scopes. Acquire them separately in registry order.
 Do not edit a note another instance has claimed. On completion record Outcome, move to
 archive without replacing another note, and append an archive index entry under your scope.
+An identical retry by the same instance returns alreadyClaimed, including for universal
+notes; the receipt must match claimant, source and digest.
 
 ## Takeover, incidents, and recovery
 
@@ -183,6 +190,19 @@ generation. If the recovery guard itself is abandoned, perform offline operator 
 with every actor stopped; do not add an automatic guard-stealing loop.
 
 ## Supported capabilities and storage limits
+
+trinoris-agent log reads the local .trinoris/journal/ activity aid. Ordinary SDK
+mutations record timestamp, operation, instance, class, scopes, task and outcome. Daily JSONL
+files are retained for 30 days. Writes are best effort and never change the operation result;
+reads are bounded, reject links and skip malformed records. This is diagnostic context, not
+an authenticated or complete audit trail. Read-only guard checks are not journaled.
+
+trinoris-agent status --all-repos reads the advisory registry under ~/.trinoris/registry/
+or TRINORIS_GLOBAL_DIR/registry/. It stores one entry per repository and agent instance,
+so concurrent agents in one checkout remain visible independently. Entries summarize scopes,
+task and last update. Empty holdings remove only that instance's entry. Stale or unreadable
+entries never gate local leases. The registry is not authoritative lock state, secure identity,
+or cross-machine coordination. Do not put secrets in task text.
 
 Heartbeat/daemon operation is unsupported and heartbeat.enabled must remain false.
 Future heartbeat support needs versioned freshness, authenticity assumptions, and tests;

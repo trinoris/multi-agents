@@ -92,4 +92,14 @@ describe('R1 write guard', () => {
     expect(() => classifyPaths([], { cwd: root })).toThrow(RangeError);
     expect(() => classifyPaths(Array(5000).fill('clean.txt'), { cwd: root })).toThrow(RangeError);
   });
+
+  it('refuses when Git status cannot establish recoverability', () => {
+    const { root } = repo();
+    writeFileSync(join(root, 'peer.js'), 'peer work\n');
+    writeFileSync(join(root, '.git', 'index'), 'corrupt index');
+    const r = classifyPaths(['peer.js'], { cwd: root });
+    expect(r.ok).toBe(false);
+    expect(r.paths[0].allowed).toBe(false);
+    expect(r.paths[0].reason).toMatch(/Git status failed/);
+  });
 });

@@ -35,6 +35,13 @@ describe('R3b machine-global registry', () => {
     expect(view.entries[0].scopes).toEqual(['tests']);
   });
 
+  it('keeps concurrent agents in one repository independently visible', () => {
+    publishGlobalEntry({ repository: '/work/one', agent_class: 'codex', agent_instance: 'a', scopes: ['engine'], updated_at: at });
+    publishGlobalEntry({ repository: '/work/one', agent_class: 'claude', agent_instance: 'b', scopes: ['tests'], updated_at: at });
+    publishGlobalEntry({ repository: '/work/one', agent_class: 'codex', agent_instance: 'a', scopes: [], updated_at: at });
+    expect(readGlobalRegistry().entries.map(e => e.agent_instance)).toEqual(['b']);
+  });
+
   it('removes the entry when nothing is held, instead of leaving it stale', () => {
     publishGlobalEntry({ repository: '/work/one', agent_class: 'c', agent_instance: 'i', scopes: ['engine'], updated_at: at });
     publishGlobalEntry({ repository: '/work/one', agent_class: 'c', agent_instance: 'i', scopes: [], updated_at: at });
@@ -59,9 +66,10 @@ describe('R3b machine-global registry', () => {
     publishGlobalEntry({ repository: '/work/one', agent_class: 'c', agent_instance: 'i', scopes: ['engine'], updated_at: at });
     writeFileSync(join(globalRoot(), 'registry', 'bogus.json'), '{ truncated');
     writeFileSync(join(globalRoot(), 'registry', 'wrong-version.json'), JSON.stringify({ schema_version: 99 }));
+    writeFileSync(join(globalRoot(), 'registry', 'missing-time.json'), JSON.stringify({ schema_version: 1, repository: '/work/x', agent_class: 'c', agent_instance: 'i', scopes: [] }));
     const view = readGlobalRegistry();
     expect(view.entries).toHaveLength(1);
-    expect(view.unreadable).toBe(2);
+    expect(view.unreadable).toBe(3);
   });
 
   it('reports an empty view when no registry exists yet', () => {

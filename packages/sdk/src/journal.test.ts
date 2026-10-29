@@ -71,6 +71,21 @@ describe('R3a journal', () => {
     expect(readJournal(r)).toHaveLength(1);
   });
 
+  it('does not follow a symlink when appending journal data', () => {
+    const r = root(); const target = join(r, 'outside.jsonl');
+    fs.writeFileSync(target, 'sentinel\n'); const dir = join(r, 'journal'); fs.mkdirSync(dir);
+    try { fs.symlinkSync(target, join(dir, '2026-10-29.jsonl')); }
+    catch (error) { if (['EPERM', 'EACCES', 'ENOTSUP'].includes((error as NodeJS.ErrnoException).code ?? '')) return; throw error; }
+    appendJournal(r, journalRecord(codex, 'acquire', new Date('2026-10-29T10:00:00Z')));
+    expect(fs.readFileSync(target, 'utf8')).toBe('sentinel\n');
+  });
+
+  it('skips valid JSON with an invalid record shape', () => {
+    const r = root(); const dir = join(r, 'journal'); fs.mkdirSync(dir);
+    fs.writeFileSync(join(dir, '2026-10-29.jsonl'), JSON.stringify({ scopes: 3, outcome: 'oops' }) + '\n');
+    expect(readJournal(r, { scope: 'engine' })).toEqual([]);
+  });
+
   it('caps how much it will return', () => {
     const r = root();
     for (let i = 0; i < 60; i++) appendJournal(r, journalRecord(codex, 'acquire', new Date('2026-10-29T10:00:00Z')));

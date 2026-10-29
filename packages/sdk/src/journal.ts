@@ -16,7 +16,7 @@
 import fs from 'node:fs';
 import { join } from 'node:path';
 import type { AgentIdentity } from '@trinoris/agent-core';
-import { safePath } from './filesystem.js';
+import { readText, safePath } from './filesystem.js';
 
 export interface JournalRecord {
   at: string;
@@ -58,7 +58,15 @@ export function appendJournal(root: string, record: JournalRecord, retentionDays
       scopes: record.scopes?.slice(0, 64),
     });
     if (Buffer.byteLength(line, 'utf8') > MAX_RECORD_BYTES) return;
-    fs.appendFileSync(join(dir, `${day(at)}.jsonl`), `${line}\n`, { mode: 0o600 });
+    const path = join(dir, `${day(at)}.jsonl`);
+    const existing = safePath(root, path);
+    if (existing && (!existing.isFile() || existing.nlink !== 1)) return;
+    const fd = fs.openSync(path, fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | (fs.constants.O_NOFOLLOW ?? 0), 0o600);
+    try {
+      const opened = fs.fstatSync(fd);
+      if (!opened.isFile() || opened.nlink !== 1 || (existing && (opened.ino !== existing.ino || opened.dev !== existing.dev))) return;
+      fs.writeFileSync(fd, `${line}\n`, 'utf8');
+    } finally { fs.closeSync(fd); }
     pruneJournal(root, at, retentionDays);
   } catch { /* an aid, never a gate */ }
 }
@@ -70,8 +78,8 @@ export function pruneJournal(root: string, at: Date, retentionDays: number): voi
     if (!safePath(root, dir)?.isDirectory()) return;
     const cutoff = day(new Date(at.getTime() - retentionDays * 86_400_000));
     for (const name of fs.readdirSync(dir)) {
-      if (!name.endsWith('.jsonl')) continue;
-      if (name.slice(0, -6) < cutoff) fs.rmSync(join(dir, name), { force: true });
+      if (!/^\d{4}-\d{2}-\d{2}\.jsonl$/.test(name)) continue;
+      if (name.slice(0, -6) < cutoff && safePath(root, join(dir, name))?.isFile()) fs.rmSync(join(dir, name), { force: true });
     }
   } catch { /* best effort */ }
 }
@@ -84,11 +92,14 @@ export function readJournal(root: string, options: { last?: number; scope?: stri
   const files = fs.readdirSync(dir).filter(n => n.endsWith('.jsonl')).sort().reverse();
   const out: JournalRecord[] = [];
   for (const name of files) {
-    let lines: string[];
-    try { lines = fs.readFileSync(join(dir, name), 'utf8').split('\n').filter(Boolean); } catch { continue; }
+    let content: string | null;
+    try { content = readText(root, join(dir, name), 8 * 1024 * 1024); } catch { continue; }
+    if (content === null) continue;
+    const lines = content.split('\n').filter(Boolean);
     for (const raw of lines.reverse()) {
       let record: JournalRecord;
       try { record = JSON.parse(raw) as JournalRecord; } catch { continue; }
+      if (!record || typeof record !== 'object' || typeof record.at !== 'string' || typeof record.agent_instance !== 'string' || typeof record.agent_class !== 'string' || typeof record.operation !== 'string' || !['ok', 'refused', 'error'].includes(record.outcome) || (record.scopes !== undefined && (!Array.isArray(record.scopes) || record.scopes.some(s => typeof s !== 'string')))) continue;
       if (options.scope && !(record.scopes ?? []).includes(options.scope)) continue;
       if (options.instance && record.agent_instance !== options.instance) continue;
       out.push(record);

@@ -58,11 +58,19 @@ export function classifyPaths(paths: string[], options: { cwd?: string; allowUnt
     const rel = relative(repository, resolve(cwd, path));
     if (rel.startsWith('..')) return { path, verdict: 'untracked', allowed: false, reason: 'outside the repository; Git cannot establish recoverability' };
     let verdict: PathVerdict;
-    const status = (() => { try { return git(repository, ['status', '--porcelain', '--ignored=matching', '--', rel]); } catch { return ''; } })();
+    let status: string;
+    try { status = git(repository, ['status', '--porcelain', '--ignored=matching', '--', rel]); }
+    catch { return { path, verdict: 'untracked', allowed: false, reason: 'Git status failed; recoverability cannot be established' }; }
     const line = status.split('\n').find(l => l.trim().length > 0);
     if (!line) {
       let tracked = false;
-      try { tracked = git(repository, ['ls-files', '--error-unmatch', '--', rel]).trim().length > 0; } catch { tracked = false; }
+      try { tracked = git(repository, ['ls-files', '--error-unmatch', '--', rel]).trim().length > 0; }
+      catch (error) {
+        // `git ls-files --error-unmatch` returns 1 for a normal untracked/missing path.
+        // Any other failure means Git could not establish whether a tracked copy exists.
+        if ((error as NodeJS.ErrnoException & { status?: number }).status === 1) tracked = false;
+        else return { path, verdict: 'untracked', allowed: false, reason: 'Git tracking check failed; recoverability cannot be established' };
+      }
       verdict = tracked ? 'clean' : 'missing';
     } else if (line.startsWith('!!')) verdict = 'ignored';
     else if (line.startsWith('??')) verdict = 'untracked';

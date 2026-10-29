@@ -1,6 +1,7 @@
 import { existsSync, linkSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { parseHandoff } from '@trinoris/agent-core';
 import { setup } from './setup.js';
@@ -76,6 +77,23 @@ describe('SG-01 safe setup', () => {
       .replace('Base commit: replace-with-commit-sha', 'Base commit: abc1234');
     expect(parseHandoff(filled)).not.toBeNull();
     expect(existsSync(join(workDir, '.trinoris/published'))).toBe(true);
+  });
+  it('refreshes an intact generated protocol and digest without replacing local config', () => {
+    const workDir = fixture(); setup({ workDir });
+    const protocolPath = join(workDir, '.trinoris/PROTOCOL.md');
+    const metadataPath = join(workDir, '.trinoris/protocol.json');
+    const configPath = join(workDir, '.trinoris/config.json');
+    const oldProtocol = '# Previous generated contract';
+    writeFileSync(protocolPath, oldProtocol);
+    writeFileSync(metadataPath, JSON.stringify({ version: '3', sha256: createHash('sha256').update(oldProtocol).digest('hex') }));
+    const localConfig = JSON.parse(readFileSync(configPath, 'utf8')); localConfig.scopes.registry.push('custom-local');
+    writeFileSync(configPath, JSON.stringify(localConfig));
+    const result = setup({ workDir });
+    expect(readFileSync(protocolPath, 'utf8')).toContain('trinoris-agent log');
+    expect(JSON.parse(readFileSync(metadataPath, 'utf8')).sha256).toBe(createHash('sha256').update(readFileSync(protocolPath)).digest('hex'));
+    expect(JSON.parse(readFileSync(configPath, 'utf8')).scopes.registry).toContain('custom-local');
+    expect(result.replaced).toContain(protocolPath);
+    expect(result.skipped).toContain(configPath);
   });
   it('ships all four load-bearing rules to an empty external consumer', () => {
     const workDir = fixture(); setup({ workDir });

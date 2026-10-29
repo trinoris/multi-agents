@@ -105,4 +105,12 @@ describe('claim reaches a universal note without --from', () => {
     expect(JSON.parse(r.stdout).ok).toBe(true);
     expect(existsSync(join(root, '.trinoris/active/reviewer/n.md'))).toBe(true);
   });
+
+  it('returns alreadyClaimed when a universal note is claimed again without --from', () => {
+    const root = seeded('any');
+    expect(JSON.parse(claim(root).stdout).alreadyClaimed).toBe(false);
+    const retry = claim(root);
+    expect(retry.status).toBe(0);
+    expect(JSON.parse(retry.stdout)).toMatchObject({ ok: true, alreadyClaimed: true });
+  });
 });

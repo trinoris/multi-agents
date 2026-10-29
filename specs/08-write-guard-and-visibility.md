@@ -188,5 +188,7 @@ new filesystem assumptions, and it deserves its own verification pass.
   pass-through and confirming only that test fails.
 - **R3** not implemented.
 
-Still owed, per [05](05-verification.md): a CLI-level test asserting `guard` exits 5, since
-the current coverage is at SDK level and the exit code is wired in `bin.ts`.
+- **R1 CLI contract** `packages/cli/src/commands/guard.integration.test.ts`, 4 cases: exit 5
+  on an untracked path with the path named, exit 0 on tracked-clean, exit 5 when any one path
+  in a batch is refused, and exit 0 once the caller claims the path explicitly. Exit 5 is what
+  a caller scripts against, so it is pinned here rather than only at SDK level.

@@ -119,12 +119,25 @@ function heldNames(p: LockPaths): string[] {
   directory(p.root, join(p.root, 'locks'));
   return fs.readdirSync(join(p.root, 'locks')).filter(n => n.endsWith('.lock')).map(n => identifier(n.slice(0, -5), 'scope'));
 }
-function compatible(p: LockPaths, scope: string, owner: AgentIdentity): Failure | null {
+/** Is this peer record already takeover-eligible, by the same bar inspect() reports? */
+function abandoned(p: LockPaths, held: string, lock: Lock | null, grace: number, at: Date): boolean {
+  if (lock) return isLockExpired(lock, at) && !isInGracePeriod(lock, grace, at);
+  const stat = safePath(p.root, lockDir(p, held));
+  return !!stat && at.getTime() > stat.mtimeMs + grace * 60_000;
+}
+function compatible(p: LockPaths, scope: string, owner: AgentIdentity, takeover?: { grace: number; at: Date }): Failure | null {
   const registry = loadConfiguration(p).scopes.registry;
   for (const held of heldNames(p)) {
     if (!registry.includes(held)) throw new ValidationError('Retained scope outside registry; stop actors and migrate offline');
     const lock = readHolder(p, held);
     if (held === scope) continue;
+    // A record past expiry plus grace is takeover-eligible: inspect() already reports it
+    // expired/breakable and the contract says it cannot authorize edits. Counting one as a
+    // live peer deadlocked recovery -- an actor that abandoned `git` alongside any other
+    // scope left every scope unbreakable, because breaking `git` was blocked by the peer
+    // scope and breaking that scope was blocked by `git`. Only takeover consults this;
+    // acquire still refuses to step around an abandoned peer without an incident record.
+    if (takeover && abandoned(p, held, lock, takeover.grace, takeover.at)) continue;
     if ((held === 'git' || scope === 'git') && lock?.agent_instance !== owner.agent_instance) return fail('scope-held');
     if (lock?.agent_instance === owner.agent_instance && registry.indexOf(held) > registry.indexOf(scope)) return fail('order-violation');
   }
@@ -236,9 +249,10 @@ export function breakLock(p: LockPaths, scope: string, owner: AgentIdentity, lea
     if (!marker(p, token, { operation_id: id, owner, created_at: now(p).toISOString() })) return fail('token-held');
     let committed = false; let attempted = false;
     try {
-      const state = inspectUnderGuard(p, scope, graceMinutes, now(p));
+      const at = now(p);
+      const state = inspectUnderGuard(p, scope, graceMinutes, at);
       if (state.state === 'free' || state.state === 'held' || !state.breakable) return fail('not-stale');
-      const blocked = compatible(p, scope, owner); if (blocked) return blocked;
+      const blocked = compatible(p, scope, owner, { grace: graceMinutes, at }); if (blocked) return blocked;
       const evicted = state.state === 'expired' ? state.lock : null;
       record(p, id, 'attempted', { scope, actor: owner, previous: evicted, reason }); attempted = true;
       const archived = join(p.root, 'incidents', `${id}.stale`);

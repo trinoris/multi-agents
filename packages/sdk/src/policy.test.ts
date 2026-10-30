@@ -87,6 +87,45 @@ describe('SG-03 scope and Git policy', () => {
     expect(acquire(p, 'git', b, 15).ok).toBe(true);
     expect(acquire(p, 'api', a, 15)).toMatchObject({ ok: false, reason: 'scope-held' });
   });
+  // The 2026-10-29 trinoris-decision-os wedge: one actor abandoned `git` alongside three
+  // edit scopes. `status` reported every one breakable: true, yet `break` answered
+  // scope-held on all of them -- breaking `git` was blocked by the peer edit scope, and
+  // breaking the edit scope was blocked by `git`. The repo could not be recovered through
+  // the protocol at all. compatible() only ever compared agent_instance, never expiry.
+  it('takes over an abandoned lease when the same actor also abandoned Git', () => {
+    const p = fixture();
+    const edit = acquire(p, 'api', a, 15), git = acquire(p, 'git', a, 15);
+    if (!edit.ok || !git.ok) throw new Error('fixture');
+    for (const [scope, lock] of [['api', edit.lock], ['git', git.lock]] as const) {
+      fs.writeFileSync(join(p.root, `locks/${scope}.lock/holder.json`),
+        JSON.stringify({ ...lock, acquired_at: '2020-01-01T00:00:00.000Z', expires_at: '2020-01-01T00:15:00.000Z' }));
+    }
+    // `git` sorts last in the registry, so recovery runs edit scopes first and Git last;
+    // taking Git first then leaves the earlier scope an order-violation.
+    expect(breakLock(p, 'api', b, 15, 0, 'actor confirmed stopped')).toMatchObject({ ok: true });
+    expect(breakLock(p, 'git', b, 15, 0, 'actor confirmed stopped')).toMatchObject({ ok: true });
+  });
+
+  it('keeps registry order when recovering several abandoned scopes', () => {
+    const p = fixture();
+    const edit = acquire(p, 'api', a, 15), git = acquire(p, 'git', a, 15);
+    if (!edit.ok || !git.ok) throw new Error('fixture');
+    for (const [scope, lock] of [['api', edit.lock], ['git', git.lock]] as const) {
+      fs.writeFileSync(join(p.root, `locks/${scope}.lock/holder.json`),
+        JSON.stringify({ ...lock, acquired_at: '2020-01-01T00:00:00.000Z', expires_at: '2020-01-01T00:15:00.000Z' }));
+    }
+    expect(breakLock(p, 'git', b, 15, 0, 'actor confirmed stopped')).toMatchObject({ ok: true });
+    expect(breakLock(p, 'api', b, 15, 0, 'actor confirmed stopped')).toMatchObject({ ok: false, reason: 'order-violation' });
+  });
+
+  it('still refuses takeover while that actor\'s Git lease is live', () => {
+    const p = fixture();
+    const edit = acquire(p, 'api', a, 15); if (!edit.ok || !acquire(p, 'git', a, 15).ok) throw new Error('fixture');
+    fs.writeFileSync(join(p.root, 'locks/api.lock/holder.json'),
+      JSON.stringify({ ...edit.lock, acquired_at: '2020-01-01T00:00:00.000Z', expires_at: '2020-01-01T00:15:00.000Z' }));
+    expect(breakLock(p, 'api', b, 15, 0, 'peer still editing')).toMatchObject({ ok: false, reason: 'scope-held' });
+  });
+
   it('rejects out-of-order acquisition and enabled unsupported heartbeats', () => {
     const p = fixture(); expect(acquire(p, 'tests', a, 15).ok).toBe(true);
     expect(acquire(p, 'api', a, 15)).toMatchObject({ ok: false, reason: 'order-violation' });

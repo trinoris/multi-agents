@@ -78,10 +78,12 @@ recorded outcome; do not infer that every artifact was published from its presen
 
 ## Protocol 3 migration and versions
 
-The protocol 3 packages `@trinoris/agent-core`, `@trinoris/agent-sdk`, and
-`@trinoris/agent-cli` have `0.2.0` releases on npm. The current CLI update adds
-`doctor --runtime` and a critical-advisory startup gate, so its next release is `0.3.0`;
-core and SDK remain at `0.2.0`. The release runner skips the already-published exact
-core/SDK versions and publishes only the CLI version after every gate passes. Stop all
-earlier protocol 2 clients before migrating to protocol 3. See the CLI user guide and
-`specs/07-security-hardening.md` for migration rules, boundaries, and test coverage.
+The protocol 3 packages `@trinoris/agent-core@0.2.0`, `@trinoris/agent-sdk@0.2.0`, and
+`@trinoris/agent-cli@0.3.0` are published on npm. CLI `0.3.0` imports
+`publishedHandoffStatus`, which exists in the current SDK source but is absent from the
+published SDK `0.2.0` artifact. The repair candidate bumps SDK to `0.3.0` and CLI to
+`0.3.1`; core remains `0.2.0`. The release runner packs and validates all three packages in
+dependency order, skips exact versions already published, and will publish the new SDK
+before the CLI after every gate passes. Stop all earlier protocol 2 clients before
+migrating to protocol 3. See the CLI user guide and `specs/07-security-hardening.md` for
+migration rules, boundaries, and test coverage.

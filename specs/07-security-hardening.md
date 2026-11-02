@@ -47,9 +47,11 @@ markers. Regression coverage is in CLI setup, verification, and installed CLI jo
 
 All 17 original findings have implementation controls and automated regressions in the
 current code. This does not close every platform-specific matrix subcase. Core and SDK
-`0.2.0` and CLI `0.2.0` are published on npm. The runtime advisory gate is prepared as CLI
-`0.3.0`; publication remains blocked until the clean-commit and current cross-platform CI
-gates below pass. The implementation uses a package-owned versioned
+`0.2.0` and CLI `0.3.0` are published on npm. A release mismatch was found: CLI `0.3.0`
+imports `publishedHandoffStatus`, present in SDK source but absent from the published SDK
+`0.2.0`. The repair candidate is SDK `0.3.0` and CLI `0.3.1`, with core remaining at
+`0.2.0`; publication remains subject to the clean-commit and current cross-platform CI
+gates below. The implementation uses a package-owned versioned
 contract, a shared mutation guard, generation-aware leases, strict bounded records and
 paths, and explicit offline marker recovery.
 
